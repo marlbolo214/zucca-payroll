@@ -38,8 +38,31 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
 @media(max-width:640px){
  .paygrid{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr 1fr}.hero{align-items:center}.total strong{font-size:23px}
 }
+
+.bulkPrint{display:none}
+.bulkPage{width:100%;height:100%;page-break-after:always;break-after:page;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:7mm;padding:8mm}
+.bulkPage:last-child{page-break-after:auto;break-after:auto}
+.bulkSlip{border:1px solid #9ca3af;border-radius:3mm;padding:4.5mm;overflow:hidden;background:#fff;display:flex;flex-direction:column}
+.bulkHead{display:flex;justify-content:space-between;align-items:flex-start;gap:3mm;border-bottom:1px solid #d1d5db;padding-bottom:2.5mm;margin-bottom:2.5mm}
+.bulkBrand{font-size:10px;font-weight:900;letter-spacing:.04em}.bulkName{font-size:18px;font-weight:900;margin-top:1mm}.bulkPeriod{font-size:9px;color:#6b7280;margin-top:1mm}
+.bulkTotal{text-align:right}.bulkTotal small{display:block;font-size:8px;color:#6b7280}.bulkTotal b{font-size:19px}
+.bulkStats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.8mm;margin-bottom:2.5mm}
+.bulkStat{background:#f8fafc;border-radius:2mm;padding:2mm}.bulkStat small{display:block;font-size:7.5px;color:#6b7280}.bulkStat b{font-size:11px}
+.bulkMoney{width:100%;border-collapse:collapse;font-size:9px;margin-top:auto}
+.bulkMoney td{padding:1.5mm 0;border-bottom:1px solid #e5e7eb}.bulkMoney td:last-child{text-align:right;font-weight:800}
+.bulkMoney tr:last-child td{border-bottom:0;padding-top:2.2mm;font-size:11px;font-weight:900}
+.bulkNote{font-size:7.5px;color:#6b7280;margin-top:2mm}
+.bulkBlank{border:1px dashed #d1d5db;border-radius:3mm}
+@page{size:A4 portrait;margin:0}
 @media print{
- body{background:#fff}.top,.no-print{display:none!important}.wrap{max-width:none;padding:0}.card{margin:0;padding:8px;border-radius:0}.staffList{display:none}
+ body{background:#fff}
+ body.bulk-mode .top,body.bulk-mode .wrap{display:none!important}
+ body.bulk-mode .bulkPrint{display:block!important}
+ body:not(.bulk-mode) .bulkPrint{display:none!important}
+ body:not(.bulk-mode) .top,body:not(.bulk-mode) .no-print{display:none!important}
+ body:not(.bulk-mode) .wrap{max-width:none;padding:0}
+ body:not(.bulk-mode) .card{margin:0;padding:8px;border-radius:0}
+ body:not(.bulk-mode) .staffList{display:none}
 }
 </style>
 </head>
@@ -102,9 +125,11 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
 
   <div class="card no-print">
     <div class="row">
-      <button id="printBtn">PDF / 印刷</button>
+      <button id="printBtn">1人分 PDF / 印刷</button>
+      <button id="bulkPrintBtn" class="light">4人ずつPDF</button>
       <button id="csvBtn" class="secondary">CSV</button>
     </div>
+    <p class="note">「4人ずつPDF」は、登録スタッフをA4 1ページに4人（2×2）ずつ自動配置します。</p>
   </div>
 
   <div class="card no-print">
@@ -113,6 +138,8 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
     <div id="staffList" class="staffList"></div>
   </div>
 </div>
+
+<div id="bulkPrint" class="bulkPrint"></div>
 
 <script>
 const SUPABASE_URL='https://bwxmdwvpltopkfdyclyi.supabase.co';
@@ -300,6 +327,54 @@ function renderAllStaff(){
   }));
 }
 
+
+function bulkSlipHTML(s){
+  return '<section class="bulkSlip">'+
+    '<div class="bulkHead">'+
+      '<div><div class="bulkBrand">ZUCCA 給与明細</div><div class="bulkName">'+esc(s.name)+'</div><div class="bulkPeriod">'+iso(s.start)+' ～ '+iso(s.end)+'</div></div>'+
+      '<div class="bulkTotal"><small>支給額（交通費込み）</small><b>'+yen(s.total)+'</b></div>'+
+    '</div>'+
+    '<div class="bulkStats">'+
+      '<div class="bulkStat"><small>出勤日数</small><b>'+s.days+'日</b></div>'+
+      '<div class="bulkStat"><small>時給</small><b>'+yen(s.wage)+'</b></div>'+
+      '<div class="bulkStat"><small>実働</small><b>'+fmt(s.tot[0])+'</b></div>'+
+      '<div class="bulkStat"><small>休憩</small><b>'+fmt(s.tot[1])+'</b></div>'+
+      '<div class="bulkStat"><small>残業</small><b>'+fmt(s.tot[2])+'</b></div>'+
+      '<div class="bulkStat"><small>深夜</small><b>'+fmt(s.tot[3])+'</b></div>'+
+    '</div>'+
+    '<table class="bulkMoney">'+
+      '<tr><td>基本分（実働×時給）</td><td>'+yen(s.base)+'</td></tr>'+
+      '<tr><td>残業割増（+25%）</td><td>'+yen(s.otPremium)+'</td></tr>'+
+      '<tr><td>深夜割増（+25%）</td><td>'+yen(s.nightPremium)+'</td></tr>'+
+      '<tr><td>交通費（'+s.days+'日 × '+yen(s.transportPerDay)+'）</td><td>'+yen(s.transport)+'</td></tr>'+
+      '<tr><td>支給額</td><td>'+yen(s.total)+'</td></tr>'+
+    '</table>'+
+    '<div class="bulkNote">対象期間：毎月21日～翌20日 / ZUCCA</div>'+
+  '</section>';
+}
+
+function buildBulkPrint(){
+  const box=$('bulkPrint');
+  let slips=staffRows.map(st=>bulkSlipHTML(summarize(st.name)));
+  let pages=[];
+  for(let i=0;i<slips.length;i+=4){
+    let group=slips.slice(i,i+4);
+    while(group.length<4)group.push('<section class="bulkBlank"></section>');
+    pages.push('<div class="bulkPage">'+group.join('')+'</div>');
+  }
+  box.innerHTML=pages.join('');
+}
+
+function printFourUp(){
+  if(!staffRows.length){alert('スタッフデータがありません');return}
+  buildBulkPrint();
+  document.body.classList.add('bulk-mode');
+  const cleanup=()=>document.body.classList.remove('bulk-mode');
+  window.addEventListener('afterprint',cleanup,{once:true});
+  setTimeout(()=>window.print(),80);
+  setTimeout(cleanup,2500);
+}
+
 function csv(){
   let s=summarize($('staffSelect').value);
   let lines=[
@@ -328,7 +403,8 @@ $('loginBtn').addEventListener('click',login);
 $('reloadBtn').addEventListener('click',loadCloud);
 $('staffSelect').addEventListener('change',render);
 $('periodMonth').addEventListener('change',render);
-$('printBtn').addEventListener('click',()=>window.print());
+$('printBtn').addEventListener('click',()=>{document.body.classList.remove('bulk-mode');window.print()});
+$('bulkPrintBtn').addEventListener('click',printFourUp);
 $('csvBtn').addEventListener('click',csv);
 </script>
 </body>
