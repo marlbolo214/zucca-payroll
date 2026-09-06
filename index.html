@@ -82,7 +82,6 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
   .dailyItem{background:#f8fafc;border-radius:10px;padding:9px}
   .dailyItem small{display:block;color:#64748b;font-size:11px;margin-bottom:2px}
   .dailyItem b{font-size:15px}
-  .dailyPay{margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;font-weight:900}
 }
 </style>
 
@@ -140,7 +139,7 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
     <h3 style="font-size:16px;margin:18px 0 7px">日別明細</h3>
     <p class="note">時間は小数表記です（15分＝0.25／30分＝0.50／45分＝0.75）。勤務時間は給与計算に使用する丸め後の時刻です。</p>
     <div class="tw dailyTableWrap"><table>
-      <thead><tr><th>日付</th><th>勤務時間</th><th>実働</th><th>休憩</th><th>残業</th><th>深夜</th><th>日額目安</th></tr></thead>
+      <thead><tr><th>日付</th><th>勤務時間</th><th>実働</th><th>休憩</th><th>残業</th><th>深夜</th></tr></thead>
       <tbody id="dailyBody"></tbody>
     </table></div>
     <div id="dailyCards" class="dailyCards"></div>
@@ -360,17 +359,13 @@ function render(){
     let dailyOt=(c[2]||0)/60*s.wage*.25;
     let dailyNight=(c[3]||0)/60*s.wage*.25;
     let dayPay=dailyBase+dailyOt+dailyNight+s.transportPerDay;
-    return '<tr><td>'+d.date.slice(5).replace('-','/')+'</td><td>'+(d.issue?'<span class="dailyWarn">'+esc(d.issue)+'</span>':esc(d.span))+'</td><td>'+fmt(c[0])+'</td><td>'+fmt(c[1])+'</td><td>'+fmt(c[2])+'</td><td>'+fmt(c[3])+'</td><td>'+yen(dayPay)+'</td></tr>';
-  }).join('')||'<tr><td colspan="7">この期間の勤怠はありません</td></tr>';
+    return '<tr><td>'+d.date.slice(5).replace('-','/')+'</td><td>'+(d.issue?'<span class="dailyWarn">'+esc(d.issue)+'</span>':esc(d.span))+'</td><td>'+fmt(c[0])+'</td><td>'+fmt(c[1])+'</td><td>'+fmt(c[2])+'</td><td>'+fmt(c[3])+'</td></tr>';
+  }).join('')||'<tr><td colspan="6">この期間の勤怠はありません</td></tr>';
 
   const cards=$('dailyCards');
   if(cards){
     cards.innerHTML=s.daily.map(d=>{
       let c=d.calc;
-      let dailyBase=(c[0]||0)/60*s.wage;
-      let dailyOt=(c[2]||0)/60*s.wage*.25;
-      let dailyNight=(c[3]||0)/60*s.wage*.25;
-      let dayPay=dailyBase+dailyOt+dailyNight+s.transportPerDay;
       return '<div class="dailyCard">'+
         '<div class="dailyCardHead"><b>'+d.date.slice(5).replace('-','/')+'</b>'+
         '<span class="'+(d.issue?'dailyWarn':'dailySpan')+'">'+esc(d.issue||d.span)+'</span></div>'+
@@ -380,7 +375,6 @@ function render(){
           '<div class="dailyItem"><small>残業</small><b>'+fmt(c[2])+'</b></div>'+
           '<div class="dailyItem"><small>深夜</small><b>'+fmt(c[3])+'</b></div>'+
         '</div>'+
-        '<div class="dailyPay"><span>日額目安</span><b>'+yen(dayPay)+'</b></div>'+
       '</div>';
     }).join('')||'<div class="dailyCard">この期間の勤怠はありません</div>';
   }
