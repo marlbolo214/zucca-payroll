@@ -67,6 +67,25 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
 
 /* ZUCCA 給与明細：勤務時間帯表示＋小数時間表示 */
 </style>
+
+<style>
+.dailyCards{display:none}
+.dailyWarn{color:#b91c1c;font-weight:900}
+@media(max-width:640px){
+  .dailyTableWrap{display:none!important}
+  .dailyCards{display:grid;gap:10px}
+  .dailyCard{border:1px solid #e5e7eb;border-radius:14px;padding:12px;background:#fff}
+  .dailyCardHead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px}
+  .dailyCardHead>b{font-size:16px}
+  .dailySpan{font-weight:800;color:#111827;text-align:right}
+  .dailyGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .dailyItem{background:#f8fafc;border-radius:10px;padding:9px}
+  .dailyItem small{display:block;color:#64748b;font-size:11px;margin-bottom:2px}
+  .dailyItem b{font-size:15px}
+  .dailyPay{margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;font-weight:900}
+}
+</style>
+
 </head>
 <body>
 <div class="top"><h1>ZUCCA 給与明細</h1><p>勤怠クラウド連動・21日〜翌20日</p></div>
@@ -120,10 +139,11 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
 
     <h3 style="font-size:16px;margin:18px 0 7px">日別明細</h3>
     <p class="note">時間は小数表記です（15分＝0.25／30分＝0.50／45分＝0.75）。勤務時間は給与計算に使用する丸め後の時刻です。</p>
-    <div class="tw"><table>
+    <div class="tw dailyTableWrap"><table>
       <thead><tr><th>日付</th><th>勤務時間</th><th>実働</th><th>休憩</th><th>残業</th><th>深夜</th><th>日額目安</th></tr></thead>
       <tbody id="dailyBody"></tbody>
     </table></div>
+    <div id="dailyCards" class="dailyCards"></div>
   </div>
 
   <div class="card no-print">
@@ -163,6 +183,17 @@ function roundPunchTime(kind,time){
   return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
 }
 
+
+
+function punchIssueLabel(rows){
+  const types=(rows||[]).map(r=>r.punch_type);
+  const hasIn=types.includes('出勤');
+  const hasOut=types.includes('退勤');
+  if(hasIn&&hasOut)return '';
+  if(hasOut&&!hasIn)return '打刻不完全（退勤のみ）';
+  if(hasIn&&!hasOut)return '打刻不完全（退勤なし）';
+  return rows&&rows.length ? '打刻不完全' : '';
+}
 
 function workSpan(rows){
   let a=(rows||[]).map(v=>[v.punch_type,roundPunchTime(v.punch_type,v.punch_time)]);
@@ -290,7 +321,7 @@ function summarize(name){
     if(rows.some(r=>r.punch_type==='出勤'))days++;
     let c=calc(rows);
     c.forEach((v,i)=>{if(v!=null)tot[i]+=v});
-    daily.push({date,calc:c,span:workSpan(rows)});
+    daily.push({date,calc:c,span:workSpan(rows),issue:punchIssueLabel(rows)});
   }
 
   let wage=Number(staff.hourly_wage||0),transportPerDay=Number(staff.transport_per_day||0);
@@ -329,8 +360,30 @@ function render(){
     let dailyOt=(c[2]||0)/60*s.wage*.25;
     let dailyNight=(c[3]||0)/60*s.wage*.25;
     let dayPay=dailyBase+dailyOt+dailyNight+s.transportPerDay;
-    return '<tr><td>'+d.date.slice(5).replace('-','/')+'</td><td>'+esc(d.span)+'</td><td>'+fmt(c[0])+'</td><td>'+fmt(c[1])+'</td><td>'+fmt(c[2])+'</td><td>'+fmt(c[3])+'</td><td>'+yen(dayPay)+'</td></tr>';
+    return '<tr><td>'+d.date.slice(5).replace('-','/')+'</td><td>'+(d.issue?'<span class="dailyWarn">'+esc(d.issue)+'</span>':esc(d.span))+'</td><td>'+fmt(c[0])+'</td><td>'+fmt(c[1])+'</td><td>'+fmt(c[2])+'</td><td>'+fmt(c[3])+'</td><td>'+yen(dayPay)+'</td></tr>';
   }).join('')||'<tr><td colspan="7">この期間の勤怠はありません</td></tr>';
+
+  const cards=$('dailyCards');
+  if(cards){
+    cards.innerHTML=s.daily.map(d=>{
+      let c=d.calc;
+      let dailyBase=(c[0]||0)/60*s.wage;
+      let dailyOt=(c[2]||0)/60*s.wage*.25;
+      let dailyNight=(c[3]||0)/60*s.wage*.25;
+      let dayPay=dailyBase+dailyOt+dailyNight+s.transportPerDay;
+      return '<div class="dailyCard">'+
+        '<div class="dailyCardHead"><b>'+d.date.slice(5).replace('-','/')+'</b>'+
+        '<span class="'+(d.issue?'dailyWarn':'dailySpan')+'">'+esc(d.issue||d.span)+'</span></div>'+
+        '<div class="dailyGrid">'+
+          '<div class="dailyItem"><small>実働</small><b>'+fmt(c[0])+'</b></div>'+
+          '<div class="dailyItem"><small>休憩</small><b>'+fmt(c[1])+'</b></div>'+
+          '<div class="dailyItem"><small>残業</small><b>'+fmt(c[2])+'</b></div>'+
+          '<div class="dailyItem"><small>深夜</small><b>'+fmt(c[3])+'</b></div>'+
+        '</div>'+
+        '<div class="dailyPay"><span>日額目安</span><b>'+yen(dayPay)+'</b></div>'+
+      '</div>';
+    }).join('')||'<div class="dailyCard">この期間の勤怠はありません</div>';
+  }
 
   renderAllStaff();
 }
