@@ -87,8 +87,10 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
 
 
 <style>
+/* v5 safe presentation-only override: cloud/auth/payroll JS untouched */
 @media(max-width:640px){
   .dailyTableWrap{display:block!important;overflow-x:visible!important}
+  .dailyCards{display:none!important}
   .dailyTableWrap table{
     width:100%!important;
     table-layout:fixed!important;
@@ -99,12 +101,12 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
     padding:7px 2px!important;
     text-align:center!important;
     vertical-align:middle!important;
-    overflow-wrap:anywhere;
+    overflow-wrap:anywhere!important;
   }
-  .dailyTableWrap th:nth-child(1),.dailyTableWrap td:nth-child(1){width:12%}
-  .dailyTableWrap th:nth-child(2),.dailyTableWrap td:nth-child(2){width:28%}
-  .dailyTableWrap th:nth-child(n+3),.dailyTableWrap td:nth-child(n+3){width:15%}
-  .dailyWarn{font-size:9.5px;line-height:1.25;display:inline-block}
+  .dailyTableWrap th:nth-child(1),.dailyTableWrap td:nth-child(1){width:12%!important}
+  .dailyTableWrap th:nth-child(2),.dailyTableWrap td:nth-child(2){width:28%!important}
+  .dailyTableWrap th:nth-child(n+3),.dailyTableWrap td:nth-child(n+3){width:15%!important}
+  .dailyWarn{font-size:9.5px!important;line-height:1.25!important;display:inline-block!important}
 }
 </style>
 
@@ -165,7 +167,7 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
       <thead><tr><th>日付</th><th>勤務時間</th><th>実働</th><th>休憩</th><th>残業</th><th>深夜</th></tr></thead>
       <tbody id="dailyBody"></tbody>
     </table></div>
-    
+    <div id="dailyCards" class="dailyCards"></div>
   </div>
 
   <div class="card no-print">
@@ -383,7 +385,23 @@ function render(){
     let dailyNight=(c[3]||0)/60*s.wage*.25;
     let dayPay=dailyBase+dailyOt+dailyNight+s.transportPerDay;
     return '<tr><td>'+d.date.slice(5).replace('-','/')+'</td><td>'+(d.issue?'<span class="dailyWarn">'+esc(d.issue)+'</span>':esc(d.span))+'</td><td>'+fmt(c[0])+'</td><td>'+fmt(c[1])+'</td><td>'+fmt(c[2])+'</td><td>'+fmt(c[3])+'</td></tr>';
-  }).join('')||'<tr><td colspan="6">この期間の勤怠はありません</td></tr>';).join('')||'<div class="dailyCard">この期間の勤怠はありません</div>';
+  }).join('')||'<tr><td colspan="6">この期間の勤怠はありません</td></tr>';
+
+  const cards=$('dailyCards');
+  if(cards){
+    cards.innerHTML=s.daily.map(d=>{
+      let c=d.calc;
+      return '<div class="dailyCard">'+
+        '<div class="dailyCardHead"><b>'+d.date.slice(5).replace('-','/')+'</b>'+
+        '<span class="'+(d.issue?'dailyWarn':'dailySpan')+'">'+esc(d.issue||d.span)+'</span></div>'+
+        '<div class="dailyGrid">'+
+          '<div class="dailyItem"><small>実働</small><b>'+fmt(c[0])+'</b></div>'+
+          '<div class="dailyItem"><small>休憩</small><b>'+fmt(c[1])+'</b></div>'+
+          '<div class="dailyItem"><small>残業</small><b>'+fmt(c[2])+'</b></div>'+
+          '<div class="dailyItem"><small>深夜</small><b>'+fmt(c[3])+'</b></div>'+
+        '</div>'+
+      '</div>';
+    }).join('')||'<div class="dailyCard">この期間の勤怠はありません</div>';
   }
 
   renderAllStaff();
