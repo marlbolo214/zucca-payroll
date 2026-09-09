@@ -308,8 +308,13 @@ function withholdingTax2026(amount,taxClass,dependents){
 }
 function withholdingTaxForYear(year,amount,taxClass,dependents){
   if(year===2026)return withholdingTax2026(amount,taxClass,dependents);
-  if(year===2027&&window.ZuccaTax2027)return window.ZuccaTax2027.withholdingTax2027(amount,taxClass,dependents);
+  if(year===2027&&typeof window.ZuccaTax2027?.withholdingTax2027==='function'){
+    return window.ZuccaTax2027.withholdingTax2027(amount,taxClass,dependents);
+  }
   return null;
+}
+function taxablePay(total,transport,socialInsurance){
+  return Math.max(0,total-transport-socialInsurance);
 }
 function readTaxSettings(){
   try{return JSON.parse(localStorage.getItem(TAX_STORAGE_KEY)||'{}')||{}}
@@ -506,15 +511,16 @@ function summarize(name){
   let total=base+otPremium+nightPremium+transport;
   let taxCfg=taxSettingFor(name);
   const socialInsurance=Math.max(0,Math.floor(Number($('socialInsurance')?.value)||0));
-  let taxable=Math.max(0,total-transport-socialInsurance);
+  let taxable=taxablePay(total,transport,socialInsurance);
   const paymentDate=$('paymentDate')?.value;
   const taxYear=/^\d{4}-\d{2}-\d{2}$/.test(paymentDate||'')?Number(paymentDate.slice(0,4)):NaN;
 
   // SAFE YEAR GATE:
   // 支払日が2026年なら既存関数、2027年なら令和9年関数だけを使用する。
   // 2028年以降を含む未対応年は前年へフォールバックせず計算を停止する。
-  const taxSupported=(taxYear===2026||taxYear===2027);
-  let withholding=taxSupported ? withholdingTaxForYear(taxYear,taxable,taxCfg.taxClass,taxCfg.dependents) : null;
+  const calculatedWithholding=withholdingTaxForYear(taxYear,taxable,taxCfg.taxClass,taxCfg.dependents);
+  const taxSupported=Number.isFinite(calculatedWithholding);
+  let withholding=taxSupported ? calculatedWithholding : null;
   let net=taxSupported ? Math.max(0,total-socialInsurance-withholding) : null;
 
   return {name,staff,start,end,daily,days,tot,wage,transportPerDay,base,otPremium,nightPremium,transport,total,
@@ -839,6 +845,13 @@ $('csvBtn').addEventListener('click',csv);
 
   async function refreshTaxMasterBadge(){
     const year = taxYearFromPaymentDate();
+
+    // 2027年はクラウドの tax_masters ではなく、同梱した正式版を計算に使う。
+    // クラウドに行がなくても「マスターなし」と誤表示しない。
+    if(year === 2027 && typeof window.ZuccaTax2027?.withholdingTax2027 === 'function'){
+      setBadge('税マスター：2027年 / 組み込み正式版 ✓', 'ok');
+      return;
+    }
 
     if(!session || !session.access_token){
       setBadge('税マスター：クラウド接続後に確認します', 'idle');
