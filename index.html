@@ -202,6 +202,9 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
       <div class="deductionBox netBox"><small>差引支給額</small><b id="netPay">¥0</b></div>
     </div>
     <div id="taxMeta" class="taxMeta"></div>
+    <div id="safeYearGateNote" class="no-print" style="margin-top:8px;padding:9px 11px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:800">
+      年度別税計算・安全テスト版：未対応年度は前年税率を使わず計算停止します。
+    </div>
 
 
     <h3 style="font-size:16px;margin:18px 0 7px">日別明細</h3>
@@ -493,11 +496,18 @@ function summarize(name){
   let total=base+otPremium+nightPremium+transport;
   let taxCfg=taxSettingFor(name);
   let taxable=Math.max(0,total-transport);
-  let withholding=withholdingTax2026(taxable,taxCfg.taxClass,taxCfg.dependents);
-  let net=Math.max(0,total-withholding);
+  const taxYear=start.getFullYear();
+
+  // SAFE YEAR GATE:
+  // 2026だけ既存の検証済み計算を使用。
+  // 2027以降は正式なpublished税マスター＋計算ロジックの検証完了まで、
+  // 前年ロジックへフォールバックせず給与の手取り計算を停止する。
+  const taxSupported=(taxYear===2026);
+  let withholding=taxSupported ? withholdingTax2026(taxable,taxCfg.taxClass,taxCfg.dependents) : null;
+  let net=taxSupported ? Math.max(0,total-withholding) : null;
 
   return {name,staff,start,end,daily,days,tot,wage,transportPerDay,base,otPremium,nightPremium,transport,total,
-    taxable,withholding,net,taxClass:taxCfg.taxClass,dependents:taxCfg.dependents};
+    taxable,withholding,net,taxClass:taxCfg.taxClass,dependents:taxCfg.dependents,taxYear,taxSupported};
 }
 
 
@@ -530,15 +540,13 @@ function render(){
   $('nightPay').textContent=yen(s.nightPremium);
   $('transportPay').textContent=yen(s.transport);
   $('formula').innerHTML='基本分 '+yen(s.base)+' ＋ 残業割増 '+yen(s.otPremium)+' ＋ 深夜割増 '+yen(s.nightPremium)+' ＋ 交通費 '+yen(s.transport)+' ＝ <b>'+yen(s.total)+'</b>';
-  $('withholdingPay').textContent='▲'+yen(s.withholding);
-  $('netPay').textContent=yen(s.net);
+  $('withholdingPay').textContent=s.taxSupported ? '▲'+yen(s.withholding) : '計算停止';
+  $('netPay').textContent=s.taxSupported ? yen(s.net) : '—';
   $('taxLabel').textContent='源泉所得税（'+(s.taxClass==='otsu'?'乙欄':'甲欄')+'）';
-  const displayTaxYear=String(s.start.getFullYear());
-  const taxYearNote=$('taxYearNote');
-  if(taxYearNote){
-    taxYearNote.textContent=displayTaxYear+'年分。設定はこの端末に保存します。交通費は源泉所得税の課税対象額から除外して計算します。';
-  }
-  $('taxMeta').textContent='課税対象額 '+yen(s.taxable)+' ／ '+(s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人')+' ／ '+displayTaxYear+'年分';
+  const displayTaxYear=syncTaxYearDisplay();
+  $('taxMeta').textContent=s.taxSupported
+    ? '課税対象額 '+yen(s.taxable)+' ／ '+(s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人')+' ／ '+displayTaxYear+'年分'
+    : '⚠ '+displayTaxYear+'年分：正式な税マスター未適用のため源泉所得税・差引支給額の計算を停止しています。前年の税率では計算しません。';
 
 $('dailyBody').innerHTML=s.daily.map(d=>{
     let c=d.calc;
@@ -573,8 +581,8 @@ function renderAllStaff(){
   $('staffList').innerHTML=staffRows.map(st=>{
     let s=summarize(st.name);
     return '<button type="button" class="staffItem" data-name="'+esc(st.name)+'" style="width:100%;background:#fff;color:#111827;text-align:left">'+
-      '<div><div class="name">'+esc(st.name)+'</div><div class="sub">'+s.days+'日 / 実働 '+fmt(s.tot[0])+' / 源泉 '+yen(s.withholding)+'</div></div>'+
-      '<div class="amt">'+yen(s.net)+'</div></button>';
+      '<div><div class="name">'+esc(st.name)+'</div><div class="sub">'+s.days+'日 / 実働 '+fmt(s.tot[0])+' / 源泉 '+(s.taxSupported?yen(s.withholding):'未計算')+'</div></div>'+
+      '<div class="amt">'+(s.taxSupported?yen(s.net):'—')+'</div></button>';
   }).join('');
   document.querySelectorAll('.staffItem').forEach(btn=>btn.addEventListener('click',()=>{
     $('staffSelect').value=btn.dataset.name;render();window.scrollTo({top:0,behavior:'smooth'});
@@ -602,8 +610,8 @@ function bulkSlipHTML(s){
       '<tr><td>深夜割増（+25%）</td><td>'+yen(s.nightPremium)+'</td></tr>'+
       '<tr><td>交通費（'+s.days+'日 × '+yen(s.transportPerDay)+'）</td><td>'+yen(s.transport)+'</td></tr>'+
       '<tr><td>支給額</td><td>'+yen(s.total)+'</td></tr>'+
-      '<tr><td>源泉所得税（'+(s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人')+'）</td><td>▲'+yen(s.withholding)+'</td></tr>'+
-      '<tr><td>差引支給額</td><td>'+yen(s.net)+'</td></tr>'+
+      '<tr><td>源泉所得税（'+(s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人')+'）</td><td>'+(s.taxSupported?'▲'+yen(s.withholding):'計算停止')+'</td></tr>'+
+      '<tr><td>差引支給額</td><td>'+(s.taxSupported?yen(s.net):'—')+'</td></tr>'+
     '</table>'+
     '<div class="bulkNote">対象期間：毎月21日～翌20日 / ZUCCA</div>'+
   '</section>';
@@ -656,8 +664,8 @@ async function printFourUp(){
           <tr><td>深夜割増</td><td>${yen(s.nightPremium)}</td></tr>
           <tr><td>交通費</td><td>${yen(s.transport)}</td></tr>
           <tr><td>支給額</td><td>${yen(s.total)}</td></tr>
-          <tr><td>源泉所得税（${s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人'}）</td><td>▲${yen(s.withholding)}</td></tr>
-          <tr class="grand"><td>差引支給額</td><td>${yen(s.net)}</td></tr>
+          <tr><td>源泉所得税（${s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人'}）</td><td>${s.taxSupported?'▲'+yen(s.withholding):'計算停止'}</td></tr>
+          <tr class="grand"><td>差引支給額</td><td>${s.taxSupported?yen(s.net):'—'}</td></tr>
         </table>
       </div>`;
   }
@@ -742,8 +750,9 @@ function csv(){
     ['課税対象額',Math.round(s.taxable)],
     ['源泉徴収区分',s.taxClass==='otsu'?'乙欄':'甲欄'],
     ['扶養人数',s.taxClass==='otsu'?'':s.dependents],
-    ['源泉所得税',Math.round(s.withholding)],
-    ['差引支給額',Math.round(s.net)]
+    ['源泉所得税',s.taxSupported?Math.round(s.withholding):'未計算'],
+    ['差引支給額',s.taxSupported?Math.round(s.net):'未計算'],
+    ['税年度状態',s.taxSupported?'計算済み':s.taxYear+'年分 税マスター未適用のため計算停止']
   ];
   let body='\ufeff'+lines.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
   let blob=new Blob([body],{type:'text/csv;charset=utf-8'});
@@ -757,7 +766,7 @@ $('reloadBtn').addEventListener('click',loadCloud);
 $('staffSelect').addEventListener('change',()=>{loadTaxControls();render()});
 $('taxClass').addEventListener('change',storeTaxControls);
 $('dependents').addEventListener('change',storeTaxControls);
-$('periodMonth').addEventListener('change',()=>{render();});
+$('periodMonth').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('printBtn').addEventListener('click',()=>{document.body.classList.remove('bulk-mode');window.print()});
 $('bulkPrintBtn').addEventListener('click',printFourUp);
 $('csvBtn').addEventListener('click',csv);
