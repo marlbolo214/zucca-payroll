@@ -149,6 +149,7 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
     <b>明細を選ぶ</b>
     <div class="row" style="margin-top:10px">
       <div style="flex:1;min-width:160px"><label class="note">締め期間の開始月</label><input id="periodMonth" type="month"></div>
+      <div style="flex:1;min-width:160px"><label class="note">給与支払日</label><input id="paymentDate" type="date"></div>
       <div style="flex:1;min-width:160px"><label class="note">スタッフ</label><select id="staffSelect"></select></div>
       <button id="reloadBtn">再読込</button>
     </div>
@@ -165,6 +166,9 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
         </label>
         <label id="dependentsWrap">扶養人数
           <input id="dependents" type="number" min="0" max="7" step="1" value="0">
+        </label>
+        <label>社会保険料等
+          <input id="socialInsurance" type="number" min="0" step="1" value="0">
         </label>
       </div>
       <div id="taxSettingStatus" class="note" style="margin-top:8px"></div>
@@ -234,6 +238,7 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
 
 <div id="bulkPrint" class="bulkPrint"></div>
 
+<script src="tax-2027.js"></script>
 <script>
 const SUPABASE_URL='https://bwxmdwvpltopkfdyclyi.supabase.co';
 const SUPABASE_KEY='sb_publishable_2M29EwIFoMGCMn6qfqp3eg_-xugTGMG';
@@ -300,6 +305,11 @@ function withholdingTax2026(amount,taxClass,dependents){
   let B=Math.max(0,A-salaryDeduction2026(A)-basicDeduction2026(A)-31667*dep);
   let t=incomeTaxBase2026(B,true);
   return Math.max(0,Math.round(t/10)*10);
+}
+function withholdingTaxForYear(year,amount,taxClass,dependents){
+  if(year===2026)return withholdingTax2026(amount,taxClass,dependents);
+  if(year===2027&&window.ZuccaTax2027)return window.ZuccaTax2027.withholdingTax2027(amount,taxClass,dependents);
+  return null;
 }
 function readTaxSettings(){
   try{return JSON.parse(localStorage.getItem(TAX_STORAGE_KEY)||'{}')||{}}
@@ -495,28 +505,29 @@ function summarize(name){
   let transport=days*transportPerDay;
   let total=base+otPremium+nightPremium+transport;
   let taxCfg=taxSettingFor(name);
-  let taxable=Math.max(0,total-transport);
-  const taxYear=start.getFullYear();
+  const socialInsurance=Math.max(0,Math.floor(Number($('socialInsurance')?.value)||0));
+  let taxable=Math.max(0,total-transport-socialInsurance);
+  const paymentDate=$('paymentDate')?.value;
+  const taxYear=/^\d{4}-\d{2}-\d{2}$/.test(paymentDate||'')?Number(paymentDate.slice(0,4)):NaN;
 
   // SAFE YEAR GATE:
-  // 2026だけ既存の検証済み計算を使用。
-  // 2027以降は正式なpublished税マスター＋計算ロジックの検証完了まで、
-  // 前年ロジックへフォールバックせず給与の手取り計算を停止する。
-  const taxSupported=(taxYear===2026);
-  let withholding=taxSupported ? withholdingTax2026(taxable,taxCfg.taxClass,taxCfg.dependents) : null;
-  let net=taxSupported ? Math.max(0,total-withholding) : null;
+  // 支払日が2026年なら既存関数、2027年なら令和9年関数だけを使用する。
+  // 2028年以降を含む未対応年は前年へフォールバックせず計算を停止する。
+  const taxSupported=(taxYear===2026||taxYear===2027);
+  let withholding=taxSupported ? withholdingTaxForYear(taxYear,taxable,taxCfg.taxClass,taxCfg.dependents) : null;
+  let net=taxSupported ? Math.max(0,total-socialInsurance-withholding) : null;
 
   return {name,staff,start,end,daily,days,tot,wage,transportPerDay,base,otPremium,nightPremium,transport,total,
-    taxable,withholding,net,taxClass:taxCfg.taxClass,dependents:taxCfg.dependents,taxYear,taxSupported};
+    taxable,socialInsurance,paymentDate,withholding,net,taxClass:taxCfg.taxClass,dependents:taxCfg.dependents,taxYear,taxSupported};
 }
 
 
 function syncTaxYearDisplay(){
-  const pm=$('periodMonth');
-  const year=(pm&&/^\d{4}-\d{2}$/.test(pm.value)) ? pm.value.slice(0,4) : '2026';
+  const pd=$('paymentDate');
+  const year=(pd&&/^\d{4}-\d{2}-\d{2}$/.test(pd.value)) ? pd.value.slice(0,4) : '未選択';
   const note=$('taxYearNote');
   if(note){
-    note.textContent=year+'年分。設定はこの端末に保存します。交通費は源泉所得税の課税対象額から除外して計算します。';
+    note.textContent=year+'年分（給与支払日基準）。交通費と社会保険料等は課税対象額から除外します。';
   }
   return year;
 }
@@ -545,7 +556,7 @@ function render(){
   $('taxLabel').textContent='源泉所得税（'+(s.taxClass==='otsu'?'乙欄':'甲欄')+'）';
   const displayTaxYear=syncTaxYearDisplay();
   $('taxMeta').textContent=s.taxSupported
-    ? '課税対象額 '+yen(s.taxable)+' ／ '+(s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人')+' ／ '+displayTaxYear+'年分'
+    ? '課税対象額 '+yen(s.taxable)+'（社会保険料等 '+yen(s.socialInsurance)+' 控除後） ／ '+(s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人')+' ／ '+displayTaxYear+'年分'
     : '⚠ '+displayTaxYear+'年分：正式な税マスター未適用のため源泉所得税・差引支給額の計算を停止しています。前年の税率では計算しません。';
 
 $('dailyBody').innerHTML=s.daily.map(d=>{
@@ -747,6 +758,7 @@ function csv(){
     ['深夜割増',Math.round(s.nightPremium)],
     ['交通費',Math.round(s.transport)],
     ['支給額',Math.round(s.total)],
+    ['社会保険料等',Math.round(s.socialInsurance)],
     ['課税対象額',Math.round(s.taxable)],
     ['源泉徴収区分',s.taxClass==='otsu'?'乙欄':'甲欄'],
     ['扶養人数',s.taxClass==='otsu'?'':s.dependents],
@@ -760,6 +772,7 @@ function csv(){
 }
 
 $('periodMonth').value=currentStartMonth();
+$('paymentDate').value=iso(periodFromMonth($('periodMonth').value)[1]);
 syncTaxYearDisplay();
 $('loginBtn').addEventListener('click',login);
 $('reloadBtn').addEventListener('click',loadCloud);
@@ -767,25 +780,26 @@ $('staffSelect').addEventListener('change',()=>{loadTaxControls();render()});
 $('taxClass').addEventListener('change',storeTaxControls);
 $('dependents').addEventListener('change',storeTaxControls);
 $('periodMonth').addEventListener('change',()=>{syncTaxYearDisplay();render()});
+$('paymentDate').addEventListener('change',()=>{syncTaxYearDisplay();render()});
+$('socialInsurance').addEventListener('input',render);
 $('printBtn').addEventListener('click',()=>{document.body.classList.remove('bulk-mode');window.print()});
 $('bulkPrintBtn').addEventListener('click',printFourUp);
 $('csvBtn').addEventListener('click',csv);
 </script>
 
 <script>
-/* ZUCCA tax master YEAR SWITCH PREVIEW TEST
+/* ZUCCA tax master YEAR SWITCH
    IMPORTANT:
-   - 給与計算ロジックは v6 のまま一切変更しません。
    - 2026年は published マスターを確認します。
-   - 2027年は TEST専用として draft マスターも表示確認できます。
+   - 2027年の draft マスターも表示確認できます。
    - draft の payload は税額計算に絶対に適用しません。
 */
 (function(){
   const MASTER_TABLE = 'tax_masters';
 
-  function taxYearFromPeriod(){
-    const v = document.getElementById('periodMonth')?.value || '';
-    return /^\d{4}-\d{2}$/.test(v) ? Number(v.slice(0,4)) : new Date().getFullYear();
+  function taxYearFromPaymentDate(){
+    const v = document.getElementById('paymentDate')?.value || '';
+    return /^\d{4}-\d{2}-\d{2}$/.test(v) ? Number(v.slice(0,4)) : NaN;
   }
 
   function badge(){
@@ -824,7 +838,7 @@ $('csvBtn').addEventListener('click',csv);
   }
 
   async function refreshTaxMasterBadge(){
-    const year = taxYearFromPeriod();
+    const year = taxYearFromPaymentDate();
 
     if(!session || !session.access_token){
       setBadge('税マスター：クラウド接続後に確認します', 'idle');
@@ -872,6 +886,8 @@ $('csvBtn').addEventListener('click',csv);
 
     const p = document.getElementById('periodMonth');
     if(p) p.addEventListener('change', refreshTaxMasterBadge);
+    const paymentDate = document.getElementById('paymentDate');
+    if(paymentDate) paymentDate.addEventListener('change', refreshTaxMasterBadge);
 
     const loginBtn = document.getElementById('loginBtn');
     if(loginBtn) loginBtn.addEventListener('click', function(){
