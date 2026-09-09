@@ -9,7 +9,7 @@
   // 金額は年額を12で割った後の、同資料に記載された月額そのものを使う。
   function salaryDeduction(A){
     // 給与所得控除の最低保障額69万円 ÷ 12（月額57,500円）。
-    if(A<=169443)return 57500;
+    if(A<=169444)return 57500;
     if(A<=299999)return Math.ceil(A*.30+6667);
     if(A<=549999)return Math.ceil(A*.20+36667);
     if(A<=708330)return Math.ceil(A*.10+91667);
@@ -51,7 +51,7 @@
     if(A<111000)return Math.floor(A*.03063);
     if(A>740000){
       if(A<1720000)return Math.floor(259000+(A-740000)*.4084);
-      return Math.floor(659200+(A-1720000)*.45945);
+      return Math.floor(659300+(A-1720000)*.45945);
     }
     const C=bracketAmount(A);
     function part(multiplier){

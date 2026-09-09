@@ -6,6 +6,11 @@ const {withholdingTax2027,salaryDeduction2027,basicDeduction2027}=require('./tax
 assert.equal(salaryDeduction2027(357500),108167);
 assert.equal(basicDeduction2027(357500),51667);
 
+// 給与所得控除の最低保障額から30%算式へ移る境界。
+assert.equal(salaryDeduction2027(169443),57500);
+assert.equal(salaryDeduction2027(169444),57500);
+assert.equal(salaryDeduction2027(169445),57501);
+
 const cases=[
   ['甲・扶養0',0,110999,'kou',0],
   ['甲・扶養0',140,111000,'kou',0],
@@ -21,7 +26,8 @@ const cases=[
   ['乙',259000,740000,'otsu',0],
   ['乙',259000,740001,'otsu',0],
   ['乙',659231,1719999,'otsu',0],
-  ['乙',659200,1720000,'otsu',0]
+  ['乙',659300,1720000,'otsu',0],
+  ['乙',659300,1720001,'otsu',0]
 ];
 for(const [label,want,pay,kind,deps] of cases){
   assert.equal(withholdingTax2027(pay,kind,deps),want,`${label} ${pay}`);
