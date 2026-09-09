@@ -316,6 +316,17 @@ function withholdingTaxForYear(year,amount,taxClass,dependents){
 function taxablePay(total,transport,socialInsurance){
   return Math.max(0,total-transport-socialInsurance);
 }
+// 月ごとの賃金項目は50銭未満を切り捨て、50銭以上を1円に切り上げて確定する。
+// 表示と支給額計算の双方で、この確定後の金額だけを使用する。
+function roundWageToYen(amount){
+  return Math.floor(Math.max(0,Number(amount)||0)+0.5);
+}
+function calculatePayAmounts(wage,workMinutes,overtimeMinutes,nightMinutes,transport){
+  const base=roundWageToYen(workMinutes/60*wage);
+  const otPremium=roundWageToYen(overtimeMinutes/60*wage*.25);
+  const nightPremium=roundWageToYen(nightMinutes/60*wage*.25);
+  return {base,otPremium,nightPremium,transport,total:base+otPremium+nightPremium+transport};
+}
 function readTaxSettings(){
   try{return JSON.parse(localStorage.getItem(TAX_STORAGE_KEY)||'{}')||{}}
   catch(e){return {}}
@@ -504,11 +515,9 @@ function summarize(name){
   }
 
   let wage=Number(staff.hourly_wage||0),transportPerDay=Number(staff.transport_per_day||0);
-  let base=tot[0]/60*wage;
-  let otPremium=tot[2]/60*wage*.25;
-  let nightPremium=tot[3]/60*wage*.25;
   let transport=days*transportPerDay;
-  let total=base+otPremium+nightPremium+transport;
+  const pay=calculatePayAmounts(wage,tot[0],tot[2],tot[3],transport);
+  let {base,otPremium,nightPremium,total}=pay;
   let taxCfg=taxSettingFor(name);
   const socialInsurance=Math.max(0,Math.floor(Number($('socialInsurance')?.value)||0));
   let taxable=taxablePay(total,transport,socialInsurance);
