@@ -132,7 +132,7 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
 <style>
 .ownerStoreSwitch{display:flex;align-items:end;justify-content:space-between;gap:10px;margin-top:12px;padding:12px;border:1px solid #e5e7eb;border-radius:14px;background:#f8fafc}
 .ownerStoreSwitch label{flex:1;max-width:280px}.ownerStoreSwitch select{margin-top:5px}
-.storeConnectionBadge,.statementStore{display:inline-block;padding:6px 10px;border-radius:999px;background:#ecfdf5;color:#047857;font-size:12px;font-weight:900}
+.storeConnectionBadge,.statementStore,.miniStore{display:inline-block;padding:6px 10px;border-radius:999px;background:#ecfdf5;color:#047857;font-size:12px;font-weight:900}.miniStore{padding:2px 6px;font-size:10px;vertical-align:middle}
 .storeConnectionBadge.waiting{background:#fff7ed;color:#c2410c}
 .statementStore{margin-bottom:5px;padding:4px 8px;background:#eff6ff;color:#1d4ed8;font-size:11px}
 .emptyStore{padding:18px;border:1px dashed #d1d5db;border-radius:14px;color:#6b7280;text-align:center;background:#f9fafb}
@@ -261,14 +261,20 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
 
 <script src="tax-2027.js"></script>
 <script>
-const SUPABASE_URL='https://bwxmdwvpltopkfdyclyi.supabase.co';
-const SUPABASE_KEY='sb_publishable_2M29EwIFoMGCMn6qfqp3eg_-xugTGMG';
 const STORE_CONFIG={
-  zucca:{label:'ZUCCA',connected:true},
-  takanekodan:{label:'高根公団',connected:false}
+  zucca:{
+    label:'ZUCCA',
+    url:'https://bwxmdwvpltopkfdyclyi.supabase.co',
+    key:'sb_publishable_2M29EwIFoMGCMn6qfqp3eg_-xugTGMG'
+  },
+  takanekodan:{
+    label:'高根公団',
+    url:'https://nahlnkatdmqinzaskbbp.supabase.co',
+    key:'sb_publishable_SNf2lIkK9A5hffq6hHawjw_mogl4wgt'
+  }
 };
 let selectedStore='zucca';
-let session=null,attendance=[],staffRows=[];
+let sessions={},attendance=[],staffRows=[];
 
 const $=id=>document.getElementById(id);
 const yen=n=>'¥'+Math.round(Number(n)||0).toLocaleString('ja-JP');
@@ -475,112 +481,194 @@ function currentStartMonth(){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
 }
 
-async function api(path){
-  let r=await fetch(SUPABASE_URL+path,{headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+session.access_token}});
+async function api(storeId,path){
+  const cfg=STORE_CONFIG[storeId],sess=sessions[storeId];
+  if(!cfg||!sess?.access_token)throw new Error((cfg?.label||storeId)+' に未接続です');
+  let r=await fetch(cfg.url+path,{headers:{apikey:cfg.key,Authorization:'Bearer '+sess.access_token}});
   if(!r.ok)throw new Error(await r.text());
   return r.json();
+}
+
+async function loginStore(storeId,email,password){
+  const cfg=STORE_CONFIG[storeId];
+  let r=await fetch(cfg.url+'/auth/v1/token?grant_type=password',{
+    method:'POST',
+    headers:{apikey:cfg.key,'Content-Type':'application/json'},
+    body:JSON.stringify({email,password})
+  });
+  if(!r.ok)throw new Error(await r.text());
+  sessions[storeId]=await r.json();
 }
 
 async function login(){
   let email=$('email').value.trim(),password=$('password').value;
   if(!email||!password){$('loginStatus').textContent='メールとパスワードを入力してください';return}
-  $('loginStatus').textContent='接続中…';
-  try{
-    let r=await fetch(SUPABASE_URL+'/auth/v1/token?grant_type=password',{
-      method:'POST',headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'},
-      body:JSON.stringify({email,password})
-    });
-    if(!r.ok)throw new Error(await r.text());
-    session=await r.json();
-    $('password').value='';
-    $('loginStatus').textContent='接続済み ✓';
-    $('app').classList.remove('hidden');
-    await loadCloud();
-  }catch(e){
+  $('loginStatus').textContent='ZUCCA・高根公団へ接続中…';
+
+  const results=await Promise.allSettled([
+    loginStore('zucca',email,password),
+    loginStore('takanekodan',email,password)
+  ]);
+
+  $('password').value='';
+  const connected=[];
+  if(results[0].status==='fulfilled')connected.push('ZUCCA');
+  if(results[1].status==='fulfilled')connected.push('高根公団');
+
+  if(!connected.length){
     $('loginStatus').textContent='接続失敗：メール/パスワードを確認してください';
+    return;
   }
+
+  $('loginStatus').textContent=connected.join('・')+' 接続済み ✓';
+  $('app').classList.remove('hidden');
+
+  if(selectedStore!=='all'&&!sessions[selectedStore]){
+    selectedStore=sessions.zucca?'zucca':'takanekodan';
+    $('storeSelect').value=selectedStore;
+  }
+  await loadCloud();
 }
 
 function selectedStoreLabel(){
   if(selectedStore==='all')return '全店舗';
   return STORE_CONFIG[selectedStore]?.label||'店舗';
 }
+function storeLabel(storeId){return STORE_CONFIG[storeId]?.label||storeId}
+
 function updateStoreUI(){
   const badge=$('storeConnectionBadge'),hint=$('storeHint');
   if(!badge||!hint)return;
-  if(selectedStore==='takanekodan'){
-    badge.textContent='高根公団 接続待ち';
-    badge.classList.add('waiting');
-    hint.textContent='高根公団の勤怠データ接続はまだ設定されていません。接続後はこの画面で給与明細だけ確認できます。';
-  }else if(selectedStore==='all'){
-    badge.textContent='ZUCCA接続済 / 高根公団接続待ち';
-    badge.classList.add('waiting');
-    hint.textContent='現在はZUCCAのみ表示します。高根公団接続後は両店舗を一括表示します。';
-  }else{
-    badge.textContent='ZUCCA 接続済';
-    badge.classList.remove('waiting');
-    hint.textContent='ZUCCAの給与明細を表示しています。';
+
+  const z=!!sessions.zucca,t=!!sessions.takanekodan;
+  badge.classList.toggle('waiting',!(z&&t));
+
+  if(selectedStore==='all'){
+    badge.textContent=(z?'ZUCCA接続済':'ZUCCA未接続')+' / '+(t?'高根公団接続済':'高根公団未接続');
+    hint.textContent=z&&t
+      ? '両店舗の給与明細を1画面にまとめて表示しています。'
+      : '接続できた店舗の給与明細を表示します。';
+    return;
   }
+
+  const ok=!!sessions[selectedStore];
+  badge.textContent=storeLabel(selectedStore)+(ok?' 接続済':' 未接続');
+  hint.textContent=ok
+    ? storeLabel(selectedStore)+'の給与明細を表示しています。'
+    : storeLabel(selectedStore)+'へは現在のログイン情報で接続できませんでした。';
 }
+
 function showNoStoreData(message){
   attendance=[];staffRows=[];
   $('staffSelect').innerHTML='';
   $('statement').style.display='none';
   $('staffList').innerHTML='<div class="emptyStore">'+esc(message)+'</div>';
 }
+
+async function loadStore(storeId){
+  if(!sessions[storeId])return {attendance:[],staffRows:[]};
+
+  const [a,s]=await Promise.all([
+    api(storeId,'/rest/v1/attendance?select=staff_name,work_date,punch_type,punch_time,position,id,transport_cost&order=work_date.asc,position.asc,id.asc'),
+    api(storeId,'/rest/v1/staff_members?select=name,active,sort_order,hourly_wage,transport_per_day&active=eq.true&order=sort_order.asc,name.asc')
+  ]);
+
+  return {
+    attendance:a.map(r=>({...r,_storeId:storeId})),
+    staffRows:s.map(r=>({...r,_storeId:storeId}))
+  };
+}
+
 async function loadCloud(){
   updateStoreUI();
   $('syncStatus').textContent='クラウドから読み込み中…';
-  if(selectedStore==='takanekodan'){
-    showNoStoreData('高根公団はデータ接続設定待ちです。');
-    $('syncStatus').textContent='高根公団：接続設定待ち';
-    return;
-  }
+
   try{
-    [attendance,staffRows]=await Promise.all([
-      api('/rest/v1/attendance?select=staff_name,work_date,punch_type,punch_time,position,id&order=work_date.asc,position.asc,id.asc'),
-      api('/rest/v1/staff_members?select=name,active,sort_order,hourly_wage,transport_per_day&active=eq.true&order=sort_order.asc,name.asc')
-    ]);
+    const ids=selectedStore==='all'?['zucca','takanekodan']:[selectedStore];
+    const loaded=await Promise.all(ids.map(loadStore));
+
+    attendance=loaded.flatMap(x=>x.attendance);
+    staffRows=loaded.flatMap(x=>x.staffRows);
+
+    if(!staffRows.length){
+      showNoStoreData(selectedStoreLabel()+'のスタッフデータを読み込めませんでした。');
+      $('syncStatus').textContent=selectedStoreLabel()+'：データなし / 未接続';
+      updateStoreUI();
+      return;
+    }
+
     $('statement').style.display='';
     fillStaff();
     render();
-    $('syncStatus').textContent=selectedStore==='all'
-      ? 'ZUCCAの最新データを表示中 ✓ / 高根公団は接続待ち'
-      : 'ZUCCAの最新データを読み込みました ✓';
+
+    if(selectedStore==='all'){
+      const connected=['zucca','takanekodan'].filter(id=>sessions[id]).map(storeLabel);
+      $('syncStatus').textContent=connected.join('・')+'の最新データを読み込みました ✓';
+    }else{
+      $('syncStatus').textContent=selectedStoreLabel()+'の最新データを読み込みました ✓';
+    }
+    updateStoreUI();
   }catch(e){
     $('syncStatus').textContent='読み込み失敗：'+e.message;
   }
 }
 
+function staffKey(staff){
+  return (staff._storeId||selectedStore)+'::'+staff.name;
+}
+function parseStaffKey(key){
+  const v=String(key||''),i=v.indexOf('::');
+  if(i<0)return {storeId:selectedStore,name:v};
+  return {storeId:v.slice(0,i),name:v.slice(i+2)};
+}
+
 function fillStaff(){
   let keep=$('staffSelect').value;
-  $('staffSelect').innerHTML=staffRows.map(s=>'<option value="'+esc(s.name)+'">'+esc(s.name)+'</option>').join('');
-  if(keep&&staffRows.some(s=>s.name===keep))$('staffSelect').value=keep;
+  $('staffSelect').innerHTML=staffRows.map(s=>{
+    const label=selectedStore==='all'
+      ? s.name+'（'+storeLabel(s._storeId)+'）'
+      : s.name;
+    return '<option value="'+esc(staffKey(s))+'">'+esc(label)+'</option>';
+  }).join('');
+  if(keep&&staffRows.some(s=>staffKey(s)===keep))$('staffSelect').value=keep;
   loadTaxControls();
 }
 
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 
-function summarize(name){
-  let staff=staffRows.find(s=>s.name===name)||{hourly_wage:0,transport_per_day:0};
+function dailyTransportCost(rows,fallbackPerDay=0){
+  const saved=(rows||[]).find(r=>r.transport_cost!=null);
+  return saved ? Math.max(0,Number(saved.transport_cost)||0) : Math.max(0,Number(fallbackPerDay)||0);
+}
+
+function summarize(key){
+  const parsed=parseStaffKey(key);
+  const name=parsed.name,storeId=parsed.storeId;
+  let staff=staffRows.find(s=>s.name===name&&s._storeId===storeId)||{hourly_wage:0,transport_per_day:0,_storeId:storeId};
   let [start,end]=periodFromMonth($('periodMonth').value);
   let daily=[],tot=[0,0,0,0],days=0;
 
   for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
     let date=iso(d);
-    let rows=attendance.filter(r=>r.staff_name===name&&r.work_date===date);
+    let rows=attendance.filter(r=>r.staff_name===name&&r.work_date===date&&r._storeId===storeId);
     if(!rows.length)continue;
     if(rows.some(r=>r.punch_type==='出勤'))days++;
     let c=calc(rows);
     c.forEach((v,i)=>{if(v!=null)tot[i]+=v});
-    daily.push({date,calc:c,span:workSpan(rows),issue:punchIssueLabel(rows)});
+    daily.push({
+      date,
+      calc:c,
+      span:workSpan(rows),
+      issue:punchIssueLabel(rows),
+      transport:dailyTransportCost(rows,staff.transport_per_day)
+    });
   }
 
   let wage=Number(staff.hourly_wage||0),transportPerDay=Number(staff.transport_per_day||0);
-  let transport=days*transportPerDay;
+  let transport=daily.reduce((sum,d)=>sum+d.transport,0);
   const pay=calculatePayAmounts(wage,tot[0],tot[2],tot[3],transport);
   let {base,otPremium,nightPremium,total}=pay;
-  let taxCfg=taxSettingFor(name);
+  let taxCfg=taxSettingFor(key);
   const socialInsurance=Math.max(0,Math.floor(Number($('socialInsurance')?.value)||0));
   let taxable=taxablePay(total,transport,socialInsurance);
   const paymentDate=$('paymentDate')?.value;
@@ -594,7 +682,7 @@ function summarize(name){
   let withholding=taxSupported ? calculatedWithholding : null;
   let net=taxSupported ? Math.max(0,total-socialInsurance-withholding) : null;
 
-  return {name,staff,start,end,daily,days,tot,wage,transportPerDay,base,otPremium,nightPremium,transport,total,
+  return {name,storeId,storeLabel:storeLabel(storeId),staff,start,end,daily,days,tot,wage,transportPerDay,base,otPremium,nightPremium,transport,total,
     taxable,socialInsurance,paymentDate,withholding,net,taxClass:taxCfg.taxClass,dependents:taxCfg.dependents,taxYear,taxSupported};
 }
 
@@ -611,11 +699,11 @@ function syncTaxYearDisplay(){
 
 function render(){
   if(!staffRows.length)return;
-  let name=$('staffSelect').value||staffRows[0].name;
-  let s=summarize(name);
+  let key=$('staffSelect').value||staffKey(staffRows[0]);
+  let s=summarize(key);
 
-  $('statementStore').textContent=selectedStoreLabel();
-  $('staffName').textContent=name;
+  $('statementStore').textContent=s.storeLabel;
+  $('staffName').textContent=s.name;
   $('periodText').textContent=iso(s.start)+' ～ '+iso(s.end);
   $('grossPay').textContent=yen(s.total);
   $('days').textContent=s.days+'日';
@@ -639,10 +727,6 @@ function render(){
 
 $('dailyBody').innerHTML=s.daily.map(d=>{
     let c=d.calc;
-    let dailyBase=(c[0]||0)/60*s.wage;
-    let dailyOt=(c[2]||0)/60*s.wage*.25;
-    let dailyNight=(c[3]||0)/60*s.wage*.25;
-    let dayPay=dailyBase+dailyOt+dailyNight+s.transportPerDay;
     return '<tr><td>'+d.date.slice(5).replace('-','/')+'</td><td>'+(d.issue?'<span class="dailyWarn">'+esc(d.issue)+'</span>':esc(d.span))+'</td><td>'+fmt(c[0])+'</td><td>'+fmt(c[1])+'</td><td>'+fmt(c[2])+'</td><td>'+fmt(c[3])+'</td></tr>';
   }).join('')||'<tr><td colspan="6">この期間の勤怠はありません</td></tr>';
 
@@ -668,21 +752,23 @@ $('dailyBody').innerHTML=s.daily.map(d=>{
 
 function renderAllStaff(){
   $('staffList').innerHTML=staffRows.map(st=>{
-    let s=summarize(st.name);
-    return '<button type="button" class="staffItem" data-name="'+esc(st.name)+'" style="width:100%;background:#fff;color:#111827;text-align:left">'+
-      '<div><div class="name">'+esc(st.name)+'</div><div class="sub">'+s.days+'日 / 実働 '+fmt(s.tot[0])+' / 源泉 '+(s.taxSupported?yen(s.withholding):'未計算')+'</div></div>'+
+    let s=summarize(staffKey(st));
+    return '<button type="button" class="staffItem" data-key="'+esc(staffKey(st))+'" style="width:100%;background:#fff;color:#111827;text-align:left">'+
+      '<div><div class="name">'+esc(st.name)+(selectedStore==='all'?' <span class="miniStore">'+esc(storeLabel(st._storeId))+'</span>':'')+'</div><div class="sub">'+s.days+'日 / 実働 '+fmt(s.tot[0])+' / 源泉 '+(s.taxSupported?yen(s.withholding):'未計算')+'</div></div>'+
       '<div class="amt">'+(s.taxSupported?yen(s.net):'—')+'</div></button>';
   }).join('');
   document.querySelectorAll('.staffItem').forEach(btn=>btn.addEventListener('click',()=>{
-    $('staffSelect').value=btn.dataset.name;render();window.scrollTo({top:0,behavior:'smooth'});
+    $('staffSelect').value=btn.dataset.key;
+    loadTaxControls();
+    render();
+    window.scrollTo({top:0,behavior:'smooth'});
   }));
 }
-
 
 function bulkSlipHTML(s){
   return '<section class="bulkSlip">'+
     '<div class="bulkHead">'+
-      '<div><div class="bulkBrand">'+esc(selectedStoreLabel())+' 給与明細</div><div class="bulkName">'+esc(s.name)+'</div><div class="bulkPeriod">'+iso(s.start)+' ～ '+iso(s.end)+'</div></div>'+
+      '<div><div class="bulkBrand">'+esc(s.storeLabel)+' 給与明細</div><div class="bulkName">'+esc(s.name)+'</div><div class="bulkPeriod">'+iso(s.start)+' ～ '+iso(s.end)+'</div></div>'+
       '<div class="bulkTotal"><small>支給額（交通費込み）</small><b>'+yen(s.total)+'</b></div>'+
     '</div>'+
     '<div class="bulkStats">'+
@@ -697,18 +783,18 @@ function bulkSlipHTML(s){
       '<tr><td>基本分（実働×時給）</td><td>'+yen(s.base)+'</td></tr>'+
       '<tr><td>残業割増（+25%）</td><td>'+yen(s.otPremium)+'</td></tr>'+
       '<tr><td>深夜割増（+25%）</td><td>'+yen(s.nightPremium)+'</td></tr>'+
-      '<tr><td>交通費（'+s.days+'日 × '+yen(s.transportPerDay)+'）</td><td>'+yen(s.transport)+'</td></tr>'+
+      '<tr><td>交通費</td><td>'+yen(s.transport)+'</td></tr>'+
       '<tr><td>支給額</td><td>'+yen(s.total)+'</td></tr>'+
       '<tr><td>源泉所得税（'+(s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人')+'）</td><td>'+(s.taxSupported?'▲'+yen(s.withholding):'計算停止')+'</td></tr>'+
       '<tr><td>差引支給額</td><td>'+(s.taxSupported?yen(s.net):'—')+'</td></tr>'+
     '</table>'+
-    '<div class="bulkNote">対象期間：毎月21日～翌20日 / '+esc(selectedStoreLabel())+'</div>'+
+    '<div class="bulkNote">対象期間：毎月21日～翌20日 / '+esc(s.storeLabel)+'</div>'+
   '</section>';
 }
 
 function buildBulkPrint(){
   const box=$('bulkPrint');
-  let slips=staffRows.map(st=>bulkSlipHTML(summarize(st.name)));
+  let slips=staffRows.map(st=>bulkSlipHTML(summarize(staffKey(st))));
   let pages=[];
   for(let i=0;i<slips.length;i+=4){
     let group=slips.slice(i,i+4);
@@ -733,7 +819,7 @@ async function printFourUp(){
       <div class="slip">
         <div class="head">
           <div>
-            <div class="brand">${esc2(selectedStoreLabel())} 給与明細</div>
+            <div class="brand">${esc2(s.storeLabel)} 給与明細</div>
             <div class="name">${esc2(s.name)}</div>
             <div class="period">${iso(s.start)} ～ ${iso(s.end)}</div>
           </div>
@@ -761,7 +847,7 @@ async function printFourUp(){
 
   let pageHtml='';
   for(const group of groups){
-    const cards=group.map(st=>slip(summarize(st.name)));
+    const cards=group.map(st=>slip(summarize(staffKey(st))));
     while(cards.length<4) cards.push('<div class="slip blank"></div>');
     pageHtml += '<section class="sheet">'+cards.join('')+'</section>';
   }
@@ -771,7 +857,7 @@ async function printFourUp(){
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-    <title>ZUCCA 4人給与明細</title>
+    <title>${esc2(selectedStoreLabel())} 4人給与明細</title>
     <style>
       *{box-sizing:border-box}
       html,body{margin:0;padding:0;background:#eee;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;color:#111827}
@@ -822,7 +908,7 @@ async function printFourUp(){
 function csv(){
   let s=summarize($('staffSelect').value);
   let lines=[
-    [selectedStoreLabel()+' 給与明細'],
+    [s.storeLabel+' 給与明細'],
     ['スタッフ',s.name],
     ['期間',iso(s.start)+'～'+iso(s.end)],
     ['出勤日数',s.days],
@@ -846,7 +932,7 @@ function csv(){
   ];
   let body='\ufeff'+lines.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
   let blob=new Blob([body],{type:'text/csv;charset=utf-8'});
-  let a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=selectedStoreLabel()+'給与明細_'+s.name+'_'+iso(s.start)+'.csv';a.click();URL.revokeObjectURL(a.href);
+  let a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=s.storeLabel+'給与明細_'+s.name+'_'+iso(s.start)+'.csv';a.click();URL.revokeObjectURL(a.href);
 }
 
 $('periodMonth').value=currentStartMonth();
@@ -856,7 +942,7 @@ $('loginBtn').addEventListener('click',login);
 $('storeSelect').addEventListener('change',async e=>{
   selectedStore=e.target.value;
   updateStoreUI();
-  if(session)await loadCloud();
+  if(Object.keys(sessions).length)await loadCloud();
 });
 $('reloadBtn').addEventListener('click',loadCloud);
 $('staffSelect').addEventListener('change',()=>{loadTaxControls();render()});
@@ -930,8 +1016,9 @@ $('csvBtn').addEventListener('click',csv);
       return;
     }
 
-    if(!session || !session.access_token){
-      setBadge('税マスター：クラウド接続後に確認します', 'idle');
+    const taxStoreId=sessions.zucca?'zucca':'';
+    if(!taxStoreId){
+      setBadge('税マスター：ZUCCA接続後に確認します', 'idle');
       return;
     }
 
@@ -947,7 +1034,7 @@ $('csvBtn').addEventListener('click',csv);
         '&order=effective_from.desc' +
         '&limit=1';
 
-      const rows = await api(q);
+      const rows = await api(taxStoreId,q);
 
       if(rows && rows.length){
         const m = rows[0];
