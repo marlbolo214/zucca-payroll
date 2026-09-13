@@ -152,6 +152,15 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
     <button id="loginBtn">接続</button>
   </div>
   <p id="loginStatus" class="status">未接続</p>
+  <div id="highSetup" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid #e5e7eb">
+    <b>高根公団：初回だけ接続</b>
+    <p class="note">高根公団のパスワードはこの端末からSupabaseへ直接送信します。ChatGPTには送信されません。初回接続後はこの端末に接続情報を保存し、次回からZUCCAの1回ログインで両店舗を表示します。</p>
+    <div class="row">
+      <input id="highPassword" type="password" placeholder="高根公団のパスワード" style="flex:1;min-width:180px">
+      <button id="highConnectBtn" type="button">高根公団を接続</button>
+    </div>
+    <p id="highSetupStatus" class="note"></p>
+  </div>
 </div>
 
 <div id="app" class="hidden">
@@ -481,99 +490,150 @@ function currentStartMonth(){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
 }
 
-async function api(storeId,path){
+const OWNER_HIGH_SESSION_KEY='zucca_payroll_takanekodan_session_v1';
+
+function saveStoreSession(storeId,session){
+  sessions[storeId]=session;
+  if(storeId==='takanekodan'){
+    if(session)localStorage.setItem(OWNER_HIGH_SESSION_KEY,JSON.stringify(session));
+    else localStorage.removeItem(OWNER_HIGH_SESSION_KEY);
+  }
+}
+
+function restoreHighSession(){
+  try{
+    const s=JSON.parse(localStorage.getItem(OWNER_HIGH_SESSION_KEY)||'null');
+    if(s?.refresh_token||s?.access_token)sessions.takanekodan=s;
+  }catch(e){}
+}
+
+async function refreshStoreSession(storeId){
   const cfg=STORE_CONFIG[storeId],sess=sessions[storeId];
+  if(!cfg||!sess?.refresh_token)return false;
+  const r=await fetch(cfg.url+'/auth/v1/token?grant_type=refresh_token',{
+    method:'POST',
+    headers:{apikey:cfg.key,'Content-Type':'application/json'},
+    body:JSON.stringify({refresh_token:sess.refresh_token})
+  });
+  if(!r.ok){
+    if(storeId==='takanekodan')saveStoreSession(storeId,null);
+    return false;
+  }
+  const next=await r.json();
+  saveStoreSession(storeId,next);
+  return true;
+}
+
+async function api(storeId,path){
+  const cfg=STORE_CONFIG[storeId];
+  let sess=sessions[storeId];
   if(!cfg||!sess?.access_token)throw new Error((cfg?.label||storeId)+' に未接続です');
+
   let r=await fetch(cfg.url+path,{headers:{apikey:cfg.key,Authorization:'Bearer '+sess.access_token}});
+  if(r.status===401&&await refreshStoreSession(storeId)){
+    sess=sessions[storeId];
+    r=await fetch(cfg.url+path,{headers:{apikey:cfg.key,Authorization:'Bearer '+sess.access_token}});
+  }
   if(!r.ok)throw new Error(await r.text());
   return r.json();
 }
 
-async function loginStore(storeId,email,password){
+async function loginStore(storeId,email,password,{persist=false}={}){
   const cfg=STORE_CONFIG[storeId];
-  let r=await fetch(cfg.url+'/auth/v1/token?grant_type=password',{
+  const r=await fetch(cfg.url+'/auth/v1/token?grant_type=password',{
     method:'POST',
     headers:{apikey:cfg.key,'Content-Type':'application/json'},
     body:JSON.stringify({email,password})
   });
+  if(!r.ok)throw new Error(await r.text());
+  const session=await r.json();
+  if(persist)saveStoreSession(storeId,session);
+  else sessions[storeId]=session;
+  return session;
+}
 
-  if(r.ok){
-    sessions[storeId]=await r.json();
-    return {status:'connected'};
-  }
-
-  // 高根公団は初回だけ、ZUCCAと同じメール/パスワードで
-  // Supabase Authユーザーを自動作成して「1回ログイン」を実現する。
-  if(storeId==='takanekodan'){
-    const signup=await fetch(cfg.url+'/auth/v1/signup',{
-      method:'POST',
-      headers:{apikey:cfg.key,'Content-Type':'application/json'},
-      body:JSON.stringify({
-        email,
-        password,
-        data:{app:'owner-payroll',store:'takanekodan'}
-      })
-    });
-
-    if(signup.ok){
-      const created=await signup.json();
-      if(created?.access_token){
-        sessions[storeId]=created;
-        return {status:'created'};
-      }
-
-      // メール確認が必要なSupabase設定の場合。
-      const retry=await fetch(cfg.url+'/auth/v1/token?grant_type=password',{
-        method:'POST',
-        headers:{apikey:cfg.key,'Content-Type':'application/json'},
-        body:JSON.stringify({email,password})
-      });
-      if(retry.ok){
-        sessions[storeId]=await retry.json();
-        return {status:'created'};
-      }
-      throw new Error('高根公団の初回登録はできました。確認メールが届いている場合は確認後、もう一度接続してください。');
-    }
-  }
-
-  throw new Error(await r.text());
+function showHighSetup(message=''){
+  const box=$('highSetup');
+  if(box)box.style.display='block';
+  if($('highSetupStatus'))$('highSetupStatus').textContent=message;
+}
+function hideHighSetup(){
+  if($('highSetup'))$('highSetup').style.display='none';
+  if($('highPassword'))$('highPassword').value='';
+  if($('highSetupStatus'))$('highSetupStatus').textContent='';
 }
 
 async function login(){
   let email=$('email').value.trim(),password=$('password').value;
   if(!email||!password){$('loginStatus').textContent='メールとパスワードを入力してください';return}
-  $('loginStatus').textContent='ZUCCA・高根公団へ接続中…';
+  $('loginStatus').textContent='ZUCCAへ接続中…';
 
-  const results=await Promise.allSettled([
-    loginStore('zucca',email,password),
-    loginStore('takanekodan',email,password)
-  ]);
+  restoreHighSession();
 
-  $('password').value='';
-  const connected=[];
-  if(results[0].status==='fulfilled')connected.push('ZUCCA');
-  if(results[1].status==='fulfilled')connected.push('高根公団');
-
-  if(!connected.length){
+  try{
+    await loginStore('zucca',email,password);
+  }catch(e){
+    $('password').value='';
     $('loginStatus').textContent='接続失敗：メール/パスワードを確認してください';
     return;
   }
 
-  const highCreated=results[1].status==='fulfilled'&&results[1].value?.status==='created';
-  if(results[1].status==='rejected'){
-    const detail=String(results[1].reason?.message||results[1].reason||'').replace(/\\s+/g,' ').slice(0,220);
-    $('loginStatus').textContent='ZUCCA 接続済み ✓ / 高根公団の初回接続を完了できませんでした'+(detail?'：'+detail:'');
-  }else{
-    $('loginStatus').textContent=connected.join('・')+' 接続済み ✓'+(highCreated?'（高根公団 初回接続完了）':'');
+  // 高根公団は、保存済みセッションがあれば自動利用。
+  // 初回だけ、同じパスワードでも試し、違えば専用欄を表示する。
+  let highConnected=!!sessions.takanekodan;
+  if(highConnected){
+    try{
+      await api('takanekodan','/rest/v1/staff_members?select=name&limit=1');
+    }catch(e){
+      highConnected=false;
+    }
   }
-  $('app').classList.remove('hidden');
 
+  if(!highConnected){
+    try{
+      await loginStore('takanekodan',email,password,{persist:true});
+      highConnected=true;
+    }catch(e){
+      showHighSetup('高根公団だけ初回接続が必要です。高根公団のパスワードをこの端末で1度だけ入力してください。');
+    }
+  }else{
+    hideHighSetup();
+  }
+
+  $('password').value='';
+  $('loginStatus').textContent=highConnected
+    ? 'ZUCCA・高根公団 接続済み ✓'
+    : 'ZUCCA 接続済み ✓ / 高根公団は初回接続待ち';
+
+  $('app').classList.remove('hidden');
   if(selectedStore!=='all'&&!sessions[selectedStore]){
-    selectedStore=sessions.zucca?'zucca':'takanekodan';
+    selectedStore='zucca';
     $('storeSelect').value=selectedStore;
   }
   await loadCloud();
 }
+
+async function connectHighOnce(){
+  const email=$('email').value.trim();
+  const password=$('highPassword').value;
+  if(!email||!password){
+    $('highSetupStatus').textContent='高根公団のパスワードを入力してください';
+    return;
+  }
+  $('highSetupStatus').textContent='高根公団へ接続中…';
+  try{
+    await loginStore('takanekodan',email,password,{persist:true});
+    $('highPassword').value='';
+    $('loginStatus').textContent='ZUCCA・高根公団 接続済み ✓';
+    $('highSetupStatus').textContent='高根公団の初回接続が完了しました ✓';
+    setTimeout(hideHighSetup,900);
+    updateStoreUI();
+    await loadCloud();
+  }catch(e){
+    $('highSetupStatus').textContent='高根公団の接続に失敗しました。高根公団で使っているパスワードを確認してください。';
+  }
+}
+
 
 function selectedStoreLabel(){
   if(selectedStore==='all')return '全店舗';
@@ -980,10 +1040,12 @@ function csv(){
   let a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=s.storeLabel+'給与明細_'+s.name+'_'+iso(s.start)+'.csv';a.click();URL.revokeObjectURL(a.href);
 }
 
+restoreHighSession();
 $('periodMonth').value=currentStartMonth();
 $('paymentDate').value=iso(periodFromMonth($('periodMonth').value)[1]);
 syncTaxYearDisplay();
 $('loginBtn').addEventListener('click',login);
+$('highConnectBtn').addEventListener('click',connectHighOnce);
 $('storeSelect').addEventListener('change',async e=>{
   selectedStore=e.target.value;
   updateStoreUI();
