@@ -496,8 +496,47 @@ async function loginStore(storeId,email,password){
     headers:{apikey:cfg.key,'Content-Type':'application/json'},
     body:JSON.stringify({email,password})
   });
-  if(!r.ok)throw new Error(await r.text());
-  sessions[storeId]=await r.json();
+
+  if(r.ok){
+    sessions[storeId]=await r.json();
+    return {status:'connected'};
+  }
+
+  // 高根公団は初回だけ、ZUCCAと同じメール/パスワードで
+  // Supabase Authユーザーを自動作成して「1回ログイン」を実現する。
+  if(storeId==='takanekodan'){
+    const signup=await fetch(cfg.url+'/auth/v1/signup',{
+      method:'POST',
+      headers:{apikey:cfg.key,'Content-Type':'application/json'},
+      body:JSON.stringify({
+        email,
+        password,
+        data:{app:'owner-payroll',store:'takanekodan'}
+      })
+    });
+
+    if(signup.ok){
+      const created=await signup.json();
+      if(created?.access_token){
+        sessions[storeId]=created;
+        return {status:'created'};
+      }
+
+      // メール確認が必要なSupabase設定の場合。
+      const retry=await fetch(cfg.url+'/auth/v1/token?grant_type=password',{
+        method:'POST',
+        headers:{apikey:cfg.key,'Content-Type':'application/json'},
+        body:JSON.stringify({email,password})
+      });
+      if(retry.ok){
+        sessions[storeId]=await retry.json();
+        return {status:'created'};
+      }
+      throw new Error('高根公団の初回登録はできました。確認メールが届いている場合は確認後、もう一度接続してください。');
+    }
+  }
+
+  throw new Error(await r.text());
 }
 
 async function login(){
@@ -520,7 +559,8 @@ async function login(){
     return;
   }
 
-  $('loginStatus').textContent=connected.join('・')+' 接続済み ✓';
+  const highCreated=results[1].status==='fulfilled'&&results[1].value?.status==='created';
+  $('loginStatus').textContent=connected.join('・')+' 接続済み ✓'+(highCreated?'（高根公団 初回接続完了）':'');
   $('app').classList.remove('hidden');
 
   if(selectedStore!=='all'&&!sessions[selectedStore]){
