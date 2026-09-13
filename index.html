@@ -560,7 +560,12 @@ async function login(){
   }
 
   const highCreated=results[1].status==='fulfilled'&&results[1].value?.status==='created';
-  $('loginStatus').textContent=connected.join('・')+' 接続済み ✓'+(highCreated?'（高根公団 初回接続完了）':'');
+  if(results[1].status==='rejected'){
+    const detail=String(results[1].reason?.message||results[1].reason||'').replace(/\\s+/g,' ').slice(0,220);
+    $('loginStatus').textContent='ZUCCA 接続済み ✓ / 高根公団の初回接続を完了できませんでした'+(detail?'：'+detail:'');
+  }else{
+    $('loginStatus').textContent=connected.join('・')+' 接続済み ✓'+(highCreated?'（高根公団 初回接続完了）':'');
+  }
   $('app').classList.remove('hidden');
 
   if(selectedStore!=='all'&&!sessions[selectedStore]){
