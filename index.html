@@ -34,6 +34,13 @@ button.secondary{background:#374151}button.light{background:#eef2ff;color:#312e8
 th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:first-child,td:first-child{text-align:left}
 .staffList{display:grid;gap:10px}.staffItem{border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:10px}
 .staffItem .name{font-weight:800}.staffItem .sub{font-size:11px;color:var(--muted);margin-top:3px}.staffItem .amt{font-weight:900;font-size:18px}
+.storeGroup{border:1px solid var(--line);border-radius:18px;padding:12px;background:#f8fafc}
+.storeGroup+.storeGroup{margin-top:4px}
+.storeGroupHead{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-bottom:10px;padding:2px 2px 9px;border-bottom:1px solid var(--line)}
+.storeGroupTitle{font-size:17px;font-weight:900;color:#0f172a}
+.storeGroupMeta{font-size:11px;color:var(--muted);text-align:right}
+.storeGroupList{display:grid;gap:8px}
+.storeGroup .staffItem{background:#fff!important}
 .hidden{display:none!important}
 @media(max-width:640px){
  .paygrid{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr 1fr}.hero{align-items:center}.total strong{font-size:23px}
@@ -260,8 +267,8 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
   </div>
 
   <div class="card no-print">
-    <b>全スタッフ一覧</b>
-    <p class="note">同じ締め期間の支給額を一覧表示します。</p>
+    <b id="staffListTitle">全スタッフ一覧</b>
+    <p id="staffListNote" class="note">同じ締め期間の支給額を一覧表示します。</p>
     <div id="staffList" class="staffList"></div>
   </div>
 </div>
@@ -856,17 +863,51 @@ $('dailyBody').innerHTML=s.daily.map(d=>{
 }
 
 function renderAllStaff(){
-  $('staffList').innerHTML=staffRows.map(st=>{
-    let s=summarize(staffKey(st));
+  const list=$('staffList');
+  const title=$('staffListTitle');
+  const note=$('staffListNote');
+
+  const staffButton=st=>{
+    const s=summarize(staffKey(st));
     return '<button type="button" class="staffItem" data-key="'+esc(staffKey(st))+'" style="width:100%;background:#fff;color:#111827;text-align:left">'+
-      '<div><div class="name">'+esc(st.name)+(selectedStore==='all'?' <span class="miniStore">'+esc(storeLabel(st._storeId))+'</span>':'')+'</div><div class="sub">'+s.days+'日 / 実働 '+fmt(s.tot[0])+' / 源泉 '+(s.taxSupported?yen(s.withholding):'未計算')+'</div></div>'+
+      '<div><div class="name">'+esc(st.name)+'</div>'+
+      '<div class="sub">'+s.days+'日 / 実働 '+fmt(s.tot[0])+' / 支給 '+yen(s.total)+' / 源泉 '+(s.taxSupported?yen(s.withholding):'未計算')+'</div></div>'+
       '<div class="amt">'+(s.taxSupported?yen(s.net):'—')+'</div></button>';
-  }).join('');
-  document.querySelectorAll('.staffItem').forEach(btn=>btn.addEventListener('click',()=>{
+  };
+
+  if(selectedStore==='all'){
+    if(title)title.textContent='店舗別スタッフ一覧';
+    if(note)note.textContent='ZUCCA・高根公団を店舗ごとにまとめています。スタッフを押すと、その人の給与明細を表示します。';
+
+    const ids=['zucca','takanekodan'];
+    list.innerHTML=ids.map(storeId=>{
+      const rows=staffRows.filter(st=>st._storeId===storeId);
+      if(!rows.length)return '';
+      const sums=rows.map(st=>summarize(staffKey(st)));
+      const gross=sums.reduce((n,s)=>n+s.total,0);
+      const netReady=sums.every(s=>s.taxSupported);
+      const net=netReady?sums.reduce((n,s)=>n+s.net,0):null;
+      return '<section class="storeGroup">'+
+        '<div class="storeGroupHead">'+
+          '<div><div class="storeGroupTitle">'+esc(storeLabel(storeId))+'</div>'+
+          '<div class="note">'+rows.length+'名</div></div>'+
+          '<div class="storeGroupMeta">支給合計 '+yen(gross)+'<br>差引合計 '+(netReady?yen(net):'一部未計算')+'</div>'+
+        '</div>'+
+        '<div class="storeGroupList">'+rows.map(staffButton).join('')+'</div>'+
+      '</section>';
+    }).join('');
+  }else{
+    if(title)title.textContent=selectedStoreLabel()+' スタッフ一覧';
+    if(note)note.textContent='同じ締め期間の支給額を一覧表示します。スタッフを押すと個人明細を表示します。';
+    list.innerHTML=staffRows.map(staffButton).join('');
+  }
+
+  list.querySelectorAll('.staffItem').forEach(btn=>btn.addEventListener('click',()=>{
     $('staffSelect').value=btn.dataset.key;
     loadTaxControls();
     render();
-    window.scrollTo({top:0,behavior:'smooth'});
+    const statement=$('statement');
+    if(statement)statement.scrollIntoView({behavior:'smooth',block:'start'});
   }));
 }
 
