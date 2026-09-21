@@ -72,6 +72,8 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
  body:not(.bulk-mode) .staffList{display:none}
 }
 
+/* v9 個人給与明細印刷: iOS SafariのURL/日時フッターと空白2ページ目を避ける専用印刷ページ */
+.singlePrintHost{display:none}
 /* v8 iOS Safari: 1人分印刷はstatement以外を完全に印刷対象外にする */
 @media print{
   body.single-print-mode .top,
@@ -1163,18 +1165,25 @@ $('paymentDate').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('socialInsurance').addEventListener('input',render);
 $('printBtn').addEventListener('click',()=>{
   document.body.classList.remove('bulk-mode');
-  const statement=$('statement');
-  const oldTitle=document.title;
-  // iOS Safariが非表示のアプリ要素を「2ページ目」として数えるのを防ぐ。
-  document.body.classList.add('single-print-mode');
-  document.title='ZUCCA 給与明細';
-  requestAnimationFrame(()=>requestAnimationFrame(()=>{
-    window.print();
-    setTimeout(()=>{
-      document.body.classList.remove('single-print-mode');
-      document.title=oldTitle;
-    },1200);
-  }));
+  const src=$('statement');
+  if(!src)return;
+  const clone=src.cloneNode(true);
+  clone.querySelectorAll('.no-print,#safeYearGateNote,#zuccaTaxMasterBadgeTest').forEach(el=>el.remove());
+  const html='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title></title><style>'+
+  '*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}'+
+  '@page{size:A4 portrait;margin:7mm}'+
+  '#statement{width:196mm;height:283mm;overflow:hidden;padding:3mm;margin:0}'+
+  '.hero{display:flex;justify-content:space-between;align-items:flex-start}.hero h2{font-size:15px;margin:0}.period{font-size:7px;color:#6b7280}.total{text-align:right}.total small{display:block;font-size:6px}.total strong{font-size:16px}'+
+  '.statementStore{display:inline-block;font-size:7px;font-weight:900}.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:1.5mm;margin-top:2mm}.metric{border:1px solid #e5e7eb;border-radius:1.5mm;padding:1.5mm}.metric small,.paybox small,.deductionBox small{display:block;font-size:6px;color:#6b7280}.metric b,.paybox b{font-size:9px}'+
+  '.paygrid{display:grid;grid-template-columns:repeat(4,1fr);gap:1.5mm;margin-top:1.5mm}.paybox{padding:1.5mm;border-radius:1.5mm}.base{background:#eff6ff;color:#1d4ed8}.ot{background:#fff7ed;color:#c2410c}.night{background:#f5f3ff;color:#6d28d9}.transport{background:#f0fdf4;color:#15803d}'+
+  '.formula{margin-top:1.5mm;background:#f8fafc;padding:1mm;font-size:6px}.deductionGrid{display:grid;grid-template-columns:1fr 1fr;gap:1.5mm;margin-top:1.5mm}.deductionBox{padding:1.5mm;border-radius:1.5mm}.deductionBox b{font-size:10px}.taxBox{background:#fff1f2;color:#be123c}.netBox{background:#ecfdf5;color:#047857}.taxMeta{font-size:6px;margin-top:1mm}'+
+  'h3{font-size:9px;margin:2mm 0 .7mm}h3+.note{font-size:5.8px;margin:0 0 .7mm;color:#6b7280}.dailyCards{display:none!important}.dailyTableWrap{overflow:visible}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:6.5px}th,td{padding:1mm .5mm;border-bottom:1px solid #e5e7eb;text-align:center}'+
+  '@media print{html,body{width:210mm;height:297mm;overflow:hidden}#statement{page-break-inside:avoid;break-inside:avoid}}'+
+  '</style></head><body>'+clone.outerHTML+'<script>window.onload=function(){setTimeout(function(){window.print()},150)}<\\/script></body></html>';
+  const blob=new Blob([html],{type:'text/html;charset=utf-8'}),url=URL.createObjectURL(blob);
+  const w=window.open(url,'_blank');
+  if(!w){URL.revokeObjectURL(url);alert('印刷ページを開けませんでした。Safariのポップアップを許可してください。');return}
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
 });
 $('bulkPrintBtn').addEventListener('click',printFourUp);
 $('csvBtn').addEventListener('click',csv);
