@@ -72,6 +72,46 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
  body:not(.bulk-mode) .staffList{display:none}
 }
 
+/* v7 1人分給与明細：A4縦1枚・出勤日のみ */
+@media print{
+  body:not(.bulk-mode) #statement{
+    width:190mm!important;
+    height:277mm!important;
+    overflow:hidden!important;
+    padding:5mm!important;
+    margin:0 auto!important;
+    page-break-inside:avoid!important;
+    break-inside:avoid!important;
+  }
+  body:not(.bulk-mode) #statement .hero h2{font-size:16px!important}
+  body:not(.bulk-mode) #statement .hero .period{font-size:8px!important;margin-top:1mm!important}
+  body:not(.bulk-mode) #statement .total strong{font-size:18px!important}
+  body:not(.bulk-mode) #statement .grid{grid-template-columns:repeat(6,1fr)!important;gap:2mm!important;margin-top:2.5mm!important}
+  body:not(.bulk-mode) #statement .metric{padding:2mm!important;border-radius:2mm!important}
+  body:not(.bulk-mode) #statement .metric small{font-size:7px!important;margin-bottom:.5mm!important}
+  body:not(.bulk-mode) #statement .metric b{font-size:10px!important}
+  body:not(.bulk-mode) #statement .paygrid{grid-template-columns:repeat(4,1fr)!important;gap:2mm!important;margin-top:2mm!important}
+  body:not(.bulk-mode) #statement .paybox{padding:2mm!important;border-radius:2mm!important}
+  body:not(.bulk-mode) #statement .paybox small{font-size:7px!important;margin-bottom:.5mm!important}
+  body:not(.bulk-mode) #statement .paybox b{font-size:10px!important}
+  body:not(.bulk-mode) #statement .formula{margin-top:2mm!important;padding:1.5mm 2mm!important;font-size:7px!important;line-height:1.2!important}
+  body:not(.bulk-mode) #statement .deductionGrid{gap:2mm!important;margin-top:2mm!important}
+  body:not(.bulk-mode) #statement .deductionBox{padding:2mm!important;border-radius:2mm!important}
+  body:not(.bulk-mode) #statement .deductionBox small{font-size:7px!important;margin-bottom:.5mm!important}
+  body:not(.bulk-mode) #statement .deductionBox b{font-size:11px!important}
+  body:not(.bulk-mode) #statement .taxMeta{margin-top:1mm!important;font-size:6.5px!important}
+  body:not(.bulk-mode) #statement #safeYearGateNote,
+  body:not(.bulk-mode) #statement #zuccaTaxMasterBadgeTest{display:none!important}
+  body:not(.bulk-mode) #statement h3{font-size:10px!important;margin:2.5mm 0 1mm!important}
+  body:not(.bulk-mode) #statement h3 + .note{font-size:6.5px!important;line-height:1.2!important;margin:0 0 1mm!important}
+  body:not(.bulk-mode) #statement .dailyTableWrap{overflow:visible!important}
+  body:not(.bulk-mode) #statement .dailyTableWrap table{font-size:7px!important;table-layout:fixed!important;white-space:nowrap!important}
+  body:not(.bulk-mode) #statement .dailyTableWrap th,
+  body:not(.bulk-mode) #statement .dailyTableWrap td{padding:1.25mm .8mm!important;text-align:center!important}
+  body:not(.bulk-mode) #statement .dailyCards{display:none!important}
+  @page{size:A4 portrait;margin:10mm}
+}
+
 /* ZUCCA 給与明細：勤務時間帯表示＋小数時間表示 */
 </style>
 
