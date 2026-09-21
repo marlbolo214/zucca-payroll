@@ -72,6 +72,28 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
  body:not(.bulk-mode) .staffList{display:none}
 }
 
+/* v8 iOS Safari: 1人分印刷はstatement以外を完全に印刷対象外にする */
+@media print{
+  body.single-print-mode .top,
+  body.single-print-mode #loginCard,
+  body.single-print-mode #app>.no-print,
+  body.single-print-mode #bulkPrint{display:none!important}
+  body.single-print-mode #app{display:block!important}
+  body.single-print-mode .wrap{display:block!important;padding:0!important;margin:0!important;max-width:none!important}
+  body.single-print-mode #statement{
+    display:block!important;
+    position:relative!important;
+    width:190mm!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:277mm!important;
+    overflow:hidden!important;
+    margin:0 auto!important;
+    page-break-after:avoid!important;
+    break-after:avoid!important;
+  }
+  html,body{height:auto!important;min-height:0!important}
+}
 /* v7 1人分給与明細：A4縦1枚・出勤日のみ */
 @media print{
   body:not(.bulk-mode) #statement{
@@ -1139,7 +1161,21 @@ $('dependents').addEventListener('change',storeTaxControls);
 $('periodMonth').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('paymentDate').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('socialInsurance').addEventListener('input',render);
-$('printBtn').addEventListener('click',()=>{document.body.classList.remove('bulk-mode');window.print()});
+$('printBtn').addEventListener('click',()=>{
+  document.body.classList.remove('bulk-mode');
+  const statement=$('statement');
+  const oldTitle=document.title;
+  // iOS Safariが非表示のアプリ要素を「2ページ目」として数えるのを防ぐ。
+  document.body.classList.add('single-print-mode');
+  document.title='ZUCCA 給与明細';
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    window.print();
+    setTimeout(()=>{
+      document.body.classList.remove('single-print-mode');
+      document.title=oldTitle;
+    },1200);
+  }));
+});
 $('bulkPrintBtn').addEventListener('click',printFourUp);
 $('csvBtn').addEventListener('click',csv);
 </script>
