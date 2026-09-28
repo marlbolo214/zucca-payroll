@@ -281,7 +281,7 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
   <div class="card" id="statement">
     <div class="hero">
       <div><span id="statementStore" class="statementStore">ZUCCA</span><h2 id="staffName">—</h2><div id="periodText" class="period">—</div></div>
-      <div class="total"><small>差引支給額（振込額）</small><strong id="netPay">¥0</strong><small style="display:block;margin-top:5px">総支給額（交通費込み） <span id="grossPay">¥0</span></small></div>
+      <div class="total"><small>振込額</small><strong id="netPay">¥0</strong><small style="display:block;margin-top:5px">差引支給額 <span id="beforeDailyPay">¥0</span> ／ 総支給額（交通費込み） <span id="grossPay">¥0</span></small></div>
     </div>
 
     <div class="grid" style="margin-top:14px">
@@ -304,9 +304,10 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
 
     <div class="deductionGrid">
       <div class="deductionBox taxBox"><small id="taxLabel">源泉所得税</small><b id="withholdingPay">¥0</b></div>
-      <div class="deductionBox netBox"><small>振込額</small><b>上部の差引支給額を確認</b></div>
+      <div class="deductionBox netBox"><small>日払い済み（振込額から控除）</small><b id="dailyPaidTotal">¥0</b></div>
     </div>
     <div id="taxMeta" class="taxMeta"></div>
+    <div id="transferWarning" class="taxMeta" style="color:#b45309;font-weight:800"></div>
     <div id="safeYearGateNote" class="no-print" style="margin-top:8px;padding:9px 11px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:800">
       年度別税計算・安全テスト版：未対応年度は前年税率を使わず計算停止します。
     </div>
@@ -354,7 +355,7 @@ const STORE_CONFIG={
   }
 };
 let selectedStore='zucca';
-let sessions={},attendance=[],staffRows=[];
+let sessions={},attendance=[],staffRows=[],paymentRows=[];
 
 const $=id=>document.getElementById(id);
 const yen=n=>'¥'+Math.round(Number(n)||0).toLocaleString('ja-JP');
@@ -735,23 +736,25 @@ function updateStoreUI(){
 }
 
 function showNoStoreData(message){
-  attendance=[];staffRows=[];
+  attendance=[];staffRows=[];paymentRows=[];
   $('staffSelect').innerHTML='';
   $('statement').style.display='none';
   $('staffList').innerHTML='<div class="emptyStore">'+esc(message)+'</div>';
 }
 
 async function loadStore(storeId){
-  if(!sessions[storeId])return {attendance:[],staffRows:[]};
+  if(!sessions[storeId])return {attendance:[],staffRows:[],paymentRows:[]};
 
-  const [a,s]=await Promise.all([
+  const [a,s,p]=await Promise.all([
     api(storeId,'/rest/v1/attendance?select=staff_name,work_date,punch_type,punch_time,position,id,transport_cost&order=work_date.asc,position.asc,id.asc'),
-    api(storeId,'/rest/v1/staff_members?select=name,active,sort_order,hourly_wage,transport_per_day&active=eq.true&order=sort_order.asc,name.asc')
+    api(storeId,'/rest/v1/staff_members?select=name,active,sort_order,hourly_wage,transport_per_day&active=eq.true&order=sort_order.asc,name.asc'),
+    storeId==='zucca'?api(storeId,'/rest/v1/daily_payments?select=staff_name,work_date,paid_at,paid_amount'):Promise.resolve([])
   ]);
 
   return {
     attendance:a.map(r=>({...r,_storeId:storeId})),
-    staffRows:s.map(r=>({...r,_storeId:storeId}))
+    staffRows:s.map(r=>({...r,_storeId:storeId})),
+    paymentRows:p.map(r=>({...r,_storeId:storeId}))
   };
 }
 
@@ -765,6 +768,7 @@ async function loadCloud(){
 
     attendance=loaded.flatMap(x=>x.attendance);
     staffRows=loaded.flatMap(x=>x.staffRows);
+    paymentRows=loaded.flatMap(x=>x.paymentRows);
 
     if(!staffRows.length){
       showNoStoreData(selectedStoreLabel()+'のスタッフデータを読み込めませんでした。');
@@ -785,6 +789,7 @@ async function loadCloud(){
     }
     updateStoreUI();
   }catch(e){
+    showNoStoreData('最新の勤怠・日払い記録を読み込めませんでした。再読み込みしてください。');
     $('syncStatus').textContent='読み込み失敗：'+e.message;
   }
 }
@@ -815,6 +820,16 @@ function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 function dailyTransportCost(rows,fallbackPerDay=0){
   const saved=(rows||[]).find(r=>r.transport_cost!=null);
   return saved ? Math.max(0,Number(saved.transport_cost)||0) : Math.max(0,Number(fallbackPerDay)||0);
+}
+
+function settleDailyPayments(rows,name,storeId,start,end,net){
+  const paid=(rows||[]).filter(r=>r._storeId===storeId&&r.staff_name===name&&r.work_date>=iso(start)&&r.work_date<=iso(end)&&r.paid_at);
+  const missingDates=paid.filter(r=>r.paid_amount===null||r.paid_amount===undefined||!Number.isSafeInteger(Number(r.paid_amount))||Number(r.paid_amount)<=0).map(r=>r.work_date);
+  const paidTotal=paid.reduce((sum,r)=>sum+(r.paid_amount===null||r.paid_amount===undefined?0:Number(r.paid_amount)||0),0);
+  const transfer=Number.isFinite(net)&&!missingDates.length&&paidTotal<=net?net-paidTotal:null;
+  const transferIssue=missingDates.length?'日払い済みの支払額が未登録です（'+missingDates.map(d=>d.slice(5).replace('-','/')).join('、')+'）。勤怠画面で金額を入力してください。'
+    :Number.isFinite(net)&&paidTotal>net?'日払い済み合計が差引支給額を超えています。支払額を確認してください。':'';
+  return {paidTotal,missingDates,transfer,transferIssue};
 }
 
 function summarize(key){
@@ -857,9 +872,10 @@ function summarize(key){
   const taxSupported=Number.isFinite(calculatedWithholding);
   let withholding=taxSupported ? calculatedWithholding : null;
   let net=taxSupported ? Math.max(0,total-socialInsurance-withholding) : null;
+  const settlement=settleDailyPayments(paymentRows,name,storeId,start,end,net);
 
   return {name,storeId,storeLabel:storeLabel(storeId),staff,start,end,daily,days,tot,wage,transportPerDay,base,otPremium,nightPremium,transport,total,
-    taxable,socialInsurance,paymentDate,withholding,net,taxClass:taxCfg.taxClass,dependents:taxCfg.dependents,taxYear,taxSupported};
+    taxable,socialInsurance,paymentDate,withholding,net,...settlement,taxClass:taxCfg.taxClass,dependents:taxCfg.dependents,taxYear,taxSupported};
 }
 
 
@@ -882,6 +898,7 @@ function render(){
   $('staffName').textContent=s.name;
   $('periodText').textContent=iso(s.start)+' ～ '+iso(s.end);
   $('grossPay').textContent=yen(s.total);
+  $('beforeDailyPay').textContent=s.taxSupported?yen(s.net):'—';
   $('days').textContent=s.days+'日';
   $('hourly').textContent=yen(s.wage);
   $('work').textContent=fmt(s.tot[0]);
@@ -894,7 +911,9 @@ function render(){
   $('transportPay').textContent=yen(s.transport);
   $('formula').innerHTML='基本分 '+yen(s.base)+' ＋ 残業割増 '+yen(s.otPremium)+' ＋ 深夜割増 '+yen(s.nightPremium)+' ＋ 交通費 '+yen(s.transport)+' ＝ <b>'+yen(s.total)+'</b>';
   $('withholdingPay').textContent=s.taxSupported ? '▲'+yen(s.withholding) : '計算停止';
-  $('netPay').textContent=s.taxSupported ? yen(s.net) : '—';
+  $('netPay').textContent=s.transfer!==null?yen(s.transfer):(s.taxSupported?'要確認':'—');
+  $('dailyPaidTotal').textContent=yen(s.paidTotal);
+  $('transferWarning').textContent=s.transferIssue;
   $('taxLabel').textContent='源泉所得税（'+(s.taxClass==='otsu'?'乙欄':'甲欄')+'）';
   const displayTaxYear=syncTaxYearDisplay();
   $('taxMeta').textContent=s.taxSupported
@@ -936,7 +955,7 @@ function renderAllStaff(){
     return '<button type="button" class="staffItem" data-key="'+esc(staffKey(st))+'" style="width:100%;background:#fff;color:#111827;text-align:left">'+
       '<div><div class="name">'+esc(st.name)+'</div>'+
       '<div class="sub">'+s.days+'日 / 実働 '+fmt(s.tot[0])+' / 支給 '+yen(s.total)+' / 源泉 '+(s.taxSupported?yen(s.withholding):'未計算')+'</div></div>'+
-      '<div class="amt">'+(s.taxSupported?yen(s.net):'—')+'</div></button>';
+      '<div class="amt">'+(s.transfer!==null?yen(s.transfer):(s.taxSupported?'要確認':'—'))+'</div></button>';
   };
 
   if(selectedStore==='all'){
@@ -949,13 +968,13 @@ function renderAllStaff(){
       if(!rows.length)return '';
       const sums=rows.map(st=>summarize(staffKey(st)));
       const gross=sums.reduce((n,s)=>n+s.total,0);
-      const netReady=sums.every(s=>s.taxSupported);
-      const net=netReady?sums.reduce((n,s)=>n+s.net,0):null;
+      const netReady=sums.every(s=>s.transfer!==null);
+      const net=netReady?sums.reduce((n,s)=>n+s.transfer,0):null;
       return '<section class="storeGroup">'+
         '<div class="storeGroupHead">'+
           '<div><div class="storeGroupTitle">'+esc(storeLabel(storeId))+'</div>'+
           '<div class="note">'+rows.length+'名</div></div>'+
-          '<div class="storeGroupMeta">支給合計 '+yen(gross)+'<br>差引合計 '+(netReady?yen(net):'一部未計算')+'</div>'+
+          '<div class="storeGroupMeta">支給合計 '+yen(gross)+'<br>振込合計 '+(netReady?yen(net):'要確認')+'</div>'+
         '</div>'+
         '<div class="storeGroupList">'+rows.map(staffButton).join('')+'</div>'+
       '</section>';
@@ -979,7 +998,7 @@ function bulkSlipHTML(s){
   return '<section class="bulkSlip">'+
     '<div class="bulkHead">'+
       '<div><div class="bulkBrand">'+esc(s.storeLabel)+' 給与明細</div><div class="bulkName">'+esc(s.name)+'</div><div class="bulkPeriod">'+iso(s.start)+' ～ '+iso(s.end)+'</div></div>'+
-      '<div class="bulkTotal"><small>差引支給額（振込額）</small><b>'+(s.taxSupported?yen(s.net):'—')+'</b><small>総支給額（交通費込み） '+yen(s.total)+'</small></div>'+
+      '<div class="bulkTotal"><small>振込額</small><b>'+(s.transfer!==null?yen(s.transfer):(s.taxSupported?'要確認':'—'))+'</b><small>差引支給額 '+(s.taxSupported?yen(s.net):'—')+'</small></div>'+
     '</div>'+
     '<div class="bulkStats">'+
       '<div class="bulkStat"><small>出勤日数</small><b>'+s.days+'日</b></div>'+
@@ -997,6 +1016,8 @@ function bulkSlipHTML(s){
       '<tr><td>支給額</td><td>'+yen(s.total)+'</td></tr>'+
       '<tr><td>源泉所得税（'+(s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人')+'）</td><td>'+(s.taxSupported?'▲'+yen(s.withholding):'計算停止')+'</td></tr>'+
       '<tr><td>差引支給額</td><td>'+(s.taxSupported?yen(s.net):'—')+'</td></tr>'+
+      '<tr><td>日払い済み</td><td>▲'+yen(s.paidTotal)+'</td></tr>'+
+      '<tr><td>振込額</td><td>'+(s.transfer!==null?yen(s.transfer):(s.taxSupported?'要確認':'—'))+'</td></tr>'+
     '</table>'+
     '<div class="bulkNote">対象期間：毎月21日～翌20日 / '+esc(s.storeLabel)+'</div>'+
   '</section>';
@@ -1016,6 +1037,8 @@ function buildBulkPrint(){
 
 async function printFourUp(){
   if(!staffRows.length){alert('スタッフデータがありません');return}
+  const unresolved=staffRows.map(st=>summarize(staffKey(st))).filter(s=>s.transferIssue);
+  if(unresolved.length){alert('日払いの支払額を確認してください：'+unresolved.map(s=>s.name+'（'+s.transferIssue+'）').join('\n'));return}
 
   const groups=[];
   for(let i=0;i<staffRows.length;i+=4){
@@ -1033,7 +1056,7 @@ async function printFourUp(){
             <div class="name">${esc2(s.name)}</div>
             <div class="period">${iso(s.start)} ～ ${iso(s.end)}</div>
           </div>
-          <div class="total"><span>差引支給額（振込額）</span><b>${s.taxSupported?yen(s.net):'—'}</b><span>総支給額（交通費込み） ${yen(s.total)}</span></div>
+          <div class="total"><span>振込額</span><b>${s.transfer!==null?yen(s.transfer):(s.taxSupported?'要確認':'—')}</b><span>差引支給額 ${s.taxSupported?yen(s.net):'—'}</span></div>
         </div>
         <div class="stats">
           <div><span>出勤</span><b>${s.days}日</b></div>
@@ -1050,7 +1073,9 @@ async function printFourUp(){
           <tr><td>交通費</td><td>${yen(s.transport)}</td></tr>
           <tr><td>支給額</td><td>${yen(s.total)}</td></tr>
           <tr><td>源泉所得税（${s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人'}）</td><td>${s.taxSupported?'▲'+yen(s.withholding):'計算停止'}</td></tr>
-          <tr class="grand"><td>差引支給額</td><td>${s.taxSupported?yen(s.net):'—'}</td></tr>
+          <tr><td>差引支給額</td><td>${s.taxSupported?yen(s.net):'—'}</td></tr>
+          <tr><td>日払い済み</td><td>▲${yen(s.paidTotal)}</td></tr>
+          <tr class="grand"><td>振込額</td><td>${s.transfer!==null?yen(s.transfer):(s.taxSupported?'要確認':'—')}</td></tr>
         </table>
       </div>`;
   }
@@ -1138,6 +1163,9 @@ function csv(){
     ['扶養人数',s.taxClass==='otsu'?'':s.dependents],
     ['源泉所得税',s.taxSupported?Math.round(s.withholding):'未計算'],
     ['差引支給額',s.taxSupported?Math.round(s.net):'未計算'],
+    ['日払い済み',Math.round(s.paidTotal)],
+    ['振込額',s.transfer!==null?Math.round(s.transfer):'要確認'],
+    ['日払い確認',s.transferIssue||'確認済み'],
     ['税年度状態',s.taxSupported?'計算済み':s.taxYear+'年分 税マスター未適用のため計算停止']
   ];
   let body='\ufeff'+lines.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
@@ -1164,6 +1192,8 @@ $('periodMonth').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('paymentDate').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('socialInsurance').addEventListener('input',render);
 $('printBtn').addEventListener('click',()=>{
+  const selected=summarize($('staffSelect').value);
+  if(selected.transferIssue){alert(selected.transferIssue);return}
   document.body.classList.remove('bulk-mode');
   const src=$('statement');
   if(!src)return;
