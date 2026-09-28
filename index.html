@@ -979,7 +979,7 @@ function bulkSlipHTML(s){
   return '<section class="bulkSlip">'+
     '<div class="bulkHead">'+
       '<div><div class="bulkBrand">'+esc(s.storeLabel)+' 給与明細</div><div class="bulkName">'+esc(s.name)+'</div><div class="bulkPeriod">'+iso(s.start)+' ～ '+iso(s.end)+'</div></div>'+
-      '<div class="bulkTotal"><small>支給額（交通費込み）</small><b>'+yen(s.total)+'</b></div>'+
+      '<div class="bulkTotal"><small>差引支給額（振込額）</small><b>'+(s.taxSupported?yen(s.net):'—')+'</b><small>総支給額（交通費込み） '+yen(s.total)+'</small></div>'+
     '</div>'+
     '<div class="bulkStats">'+
       '<div class="bulkStat"><small>出勤日数</small><b>'+s.days+'日</b></div>'+
@@ -1033,7 +1033,7 @@ async function printFourUp(){
             <div class="name">${esc2(s.name)}</div>
             <div class="period">${iso(s.start)} ～ ${iso(s.end)}</div>
           </div>
-          <div class="total"><span>支給額</span><b>${yen(s.total)}</b></div>
+          <div class="total"><span>差引支給額（振込額）</span><b>${s.taxSupported?yen(s.net):'—'}</b><span>総支給額（交通費込み） ${yen(s.total)}</span></div>
         </div>
         <div class="stats">
           <div><span>出勤</span><b>${s.days}日</b></div>
