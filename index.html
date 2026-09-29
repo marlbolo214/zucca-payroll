@@ -174,9 +174,10 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
     vertical-align:middle!important;
     overflow-wrap:anywhere!important;
   }
-  .dailyTableWrap th:nth-child(1),.dailyTableWrap td:nth-child(1){width:12%!important}
-  .dailyTableWrap th:nth-child(2),.dailyTableWrap td:nth-child(2){width:28%!important}
-  .dailyTableWrap th:nth-child(n+3),.dailyTableWrap td:nth-child(n+3){width:15%!important}
+  .dailyTableWrap th:nth-child(1),.dailyTableWrap td:nth-child(1){width:10%!important}
+  .dailyTableWrap th:nth-child(2),.dailyTableWrap td:nth-child(2){width:24%!important}
+  .dailyTableWrap th:nth-child(n+3):nth-child(-n+6),.dailyTableWrap td:nth-child(n+3):nth-child(-n+6){width:11%!important}
+  .dailyTableWrap th:nth-child(7),.dailyTableWrap td:nth-child(7){width:22%!important}
   .dailyWarn{font-size:9.5px!important;line-height:1.25!important;display:inline-block!important}
 }
 </style>
@@ -316,7 +317,7 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
     <h3 style="font-size:16px;margin:18px 0 7px">日別明細</h3>
     <p class="note">時間は小数表記です（15分＝0.25／30分＝0.50／45分＝0.75）。勤務時間は給与計算に使用する丸め後の時刻です。</p>
     <div class="tw dailyTableWrap"><table>
-      <thead><tr><th>日付</th><th>勤務時間</th><th>実働</th><th>休憩</th><th>残業</th><th>深夜</th></tr></thead>
+      <thead><tr><th>日付</th><th>勤務時間</th><th>実働</th><th>休憩</th><th>残業</th><th>深夜</th><th>支払い済み</th></tr></thead>
       <tbody id="dailyBody"></tbody>
     </table></div>
     <div id="dailyCards" class="dailyCards"></div>
@@ -851,7 +852,8 @@ function summarize(key){
       calc:c,
       span:workSpan(rows),
       issue:punchIssueLabel(rows),
-      transport:dailyTransportCost(rows,staff.transport_per_day)
+      transport:dailyTransportCost(rows,staff.transport_per_day),
+      payment:paymentRows.find(p=>p._storeId===storeId&&p.staff_name===name&&p.work_date===date&&p.paid_at)
     });
   }
 
@@ -922,8 +924,9 @@ function render(){
 
 $('dailyBody').innerHTML=s.daily.map(d=>{
     let c=d.calc;
-    return '<tr><td>'+d.date.slice(5).replace('-','/')+'</td><td>'+(d.issue?'<span class="dailyWarn">'+esc(d.issue)+'</span>':esc(d.span))+'</td><td>'+fmt(c[0])+'</td><td>'+fmt(c[1])+'</td><td>'+fmt(c[2])+'</td><td>'+fmt(c[3])+'</td></tr>';
-  }).join('')||'<tr><td colspan="6">この期間の勤怠はありません</td></tr>';
+    const paid=d.payment ? (d.payment.paid_amount==null?'金額未登録':yen(d.payment.paid_amount)) : '—';
+    return '<tr><td>'+d.date.slice(5).replace('-','/')+'</td><td>'+(d.issue?'<span class="dailyWarn">'+esc(d.issue)+'</span>':esc(d.span))+'</td><td>'+fmt(c[0])+'</td><td>'+fmt(c[1])+'</td><td>'+fmt(c[2])+'</td><td>'+fmt(c[3])+'</td><td>'+(d.payment?'<b>'+paid+'</b>':paid)+'</td></tr>';
+  }).join('')||'<tr><td colspan="7">この期間の勤怠はありません</td></tr>';
 
   const cards=$('dailyCards');
   if(cards){
@@ -937,6 +940,7 @@ $('dailyBody').innerHTML=s.daily.map(d=>{
           '<div class="dailyItem"><small>休憩</small><b>'+fmt(c[1])+'</b></div>'+
           '<div class="dailyItem"><small>残業</small><b>'+fmt(c[2])+'</b></div>'+
           '<div class="dailyItem"><small>深夜</small><b>'+fmt(c[3])+'</b></div>'+
+          '<div class="dailyItem"><small>支払い済み</small><b>'+(d.payment?(d.payment.paid_amount==null?'金額未登録':yen(d.payment.paid_amount)):'—')+'</b></div>'+
         '</div>'+
       '</div>';
     }).join('')||'<div class="dailyCard">この期間の勤怠はありません</div>';
