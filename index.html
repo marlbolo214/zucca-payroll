@@ -435,9 +435,15 @@ function taxablePay(total,transport,socialInsurance){
 function roundWageToYen(amount){
   return Math.floor(Math.max(0,Number(amount)||0)+0.5);
 }
+// Historical overrides are inclusive; dates outside them use the current staff rate.
+function wageForDate(currentWage,history,date){
+  const periods=Array.isArray(history)?history:[];
+  const match=periods.find(p=>p&&typeof p.start==='string'&&typeof p.end==='string'&&p.start<=date&&date<=p.end&&Number.isFinite(Number(p.wage))&&Number(p.wage)>=0);
+  return match?Number(match.wage):Number(currentWage)||0;
+}
 function calculatePayAmounts(wage,workMinutes,overtimeMinutes,nightMinutes,transport,daily=null){
   if(Array.isArray(daily))return daily.reduce((sum,d)=>{
-    const p=calculatePayAmounts(wage,d.calc[0]||0,d.calc[2]||0,d.calc[3]||0,d.transport);
+    const p=calculatePayAmounts(d.wage??wage,d.calc[0]||0,d.calc[2]||0,d.calc[3]||0,d.transport);
     for(const key of ['base','otPremium','nightPremium','transport','total'])sum[key]+=p[key];
     return sum;
   },{base:0,otPremium:0,nightPremium:0,transport:0,total:0});
@@ -753,7 +759,7 @@ async function loadStore(storeId){
 
   const [a,s,p]=await Promise.all([
     api(storeId,'/rest/v1/attendance?select=staff_name,work_date,punch_type,punch_time,position,id,transport_cost&order=work_date.asc,position.asc,id.asc'),
-    api(storeId,'/rest/v1/staff_members?select=name,active,sort_order,hourly_wage,transport_per_day&active=eq.true&order=sort_order.asc,name.asc'),
+    api(storeId,'/rest/v1/staff_members?select=name,active,sort_order,hourly_wage,transport_per_day'+(storeId==='zucca'?',hourly_wage_history':'')+'&active=eq.true&order=sort_order.asc,name.asc'),
     storeId==='zucca'?api(storeId,'/rest/v1/daily_payments?select=staff_name,work_date,paid_at,paid_amount'):Promise.resolve([])
   ]);
 
@@ -854,6 +860,7 @@ function summarize(key){
     c.forEach((v,i)=>{if(v!=null)tot[i]+=v});
     daily.push({
       date,
+      wage:wageForDate(staff.hourly_wage,staff.hourly_wage_history,date),
       calc:c,
       span:workSpan(rows),
       issue:punchIssueLabel(rows),
@@ -862,7 +869,7 @@ function summarize(key){
     });
   }
 
-  let wage=Number(staff.hourly_wage||0),transportPerDay=Number(staff.transport_per_day||0);
+  let wage=wageForDate(staff.hourly_wage,staff.hourly_wage_history,iso(end)),transportPerDay=Number(staff.transport_per_day||0);
   let transport=daily.reduce((sum,d)=>sum+d.transport,0);
   const pay=calculatePayAmounts(wage,tot[0],tot[2],tot[3],transport,daily);
   let {base,otPremium,nightPremium,total}=pay;
@@ -1353,3 +1360,4 @@ $('csvBtn').addEventListener('click',csv);
 
 </body>
 </html>
+
