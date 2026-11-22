@@ -874,7 +874,8 @@ function summarize(key){
 
   let wage=wageForDate(staff.hourly_wage,staff.hourly_wage_history,iso(end)),transportPerDay=Number(staff.transport_per_day||0);
   let transport=daily.reduce((sum,d)=>sum+d.transport,0);
-  const pay=calculatePayAmounts(wage,tot[0],tot[2],tot[3],transport,daily);
+  // 高根公団は月間合計時間から計算し、各賃金項目を1円に四捨五入する。
+  const pay=calculatePayAmounts(wage,tot[0],tot[2],tot[3],transport,storeId==='zucca'?daily:null);
   let {base,otPremium,nightPremium,total}=pay;
   let taxCfg=taxSettingFor(key);
   const socialInsurance=Math.max(0,Math.floor(Number($('socialInsurance')?.value)||0));
