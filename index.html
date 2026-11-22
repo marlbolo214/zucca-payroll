@@ -326,10 +326,11 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
   <div class="card no-print">
     <div class="row">
       <button id="printBtn">1人分 PDF / 印刷</button>
+      <button id="printAllBtn" class="light" hidden>ZUCCA 全員分 PDF / 印刷</button>
       <button id="bulkPrintBtn" class="light">4人ずつPDF</button>
       <button id="csvBtn" class="secondary">CSV</button>
     </div>
-    <p class="note">「4人ずつPDF」は4人配置の専用ページを開きます。内容を確認してから専用ページの「PDF / 印刷」を押してください。</p>
+    <p class="note">ZUCCAの全員分はA4縦・1人1ページです。「4人ずつPDF」は専用ページで内容を確認してから印刷できます。</p>
   </div>
 
   <div class="card no-print">
@@ -729,6 +730,7 @@ function updateStoreUI(){
   const badge=$('storeConnectionBadge'),hint=$('storeHint');
   if(!badge||!hint)return;
 
+  $('printAllBtn').hidden=selectedStore==='takanekodan'||!staffRows.some(st=>st._storeId==='zucca');
   const z=!!sessions.zucca,t=!!sessions.takanekodan;
   badge.classList.toggle('waiting',!(z&&t));
 
@@ -751,6 +753,7 @@ function showNoStoreData(message){
   attendance=[];staffRows=[];paymentRows=[];
   $('staffSelect').innerHTML='';
   $('statement').style.display='none';
+  $('printAllBtn').hidden=true;
   $('staffList').innerHTML='<div class="emptyStore">'+esc(message)+'</div>';
 }
 
@@ -905,42 +908,47 @@ function syncTaxYearDisplay(){
 
 function render(){
   if(!staffRows.length)return;
-  let key=$('staffSelect').value||staffKey(staffRows[0]);
-  let s=summarize(key);
+  const key=$('staffSelect').value||staffKey(staffRows[0]);
+  syncTaxYearDisplay();
+  renderStatement(summarize(key),$('statement'));
+  renderAllStaff();
+}
 
-  $('statementStore').textContent=s.storeLabel;
-  $('staffName').textContent=s.name;
-  $('periodText').textContent=iso(s.start)+' ～ '+iso(s.end);
-  $('grossPay').textContent=yen(s.total);
-  $('beforeDailyPay').textContent=s.taxSupported?yen(s.net):'—';
-  $('days').textContent=s.days+'日';
-  $('hourly').textContent=yen(s.wage);
-  $('work').textContent=fmt(s.tot[0]);
-  $('break').textContent=fmt(s.tot[1]);
-  $('overtime').textContent=fmt(s.tot[2]);
-  $('nightHours').textContent=fmt(s.tot[3]);
-  $('basePay').textContent=yen(s.base);
-  $('otPay').textContent=yen(s.otPremium);
-  $('nightPay').textContent=yen(s.nightPremium);
-  $('transportPay').textContent=yen(s.transport);
-  $('formula').innerHTML='基本分 '+yen(s.base)+' ＋ 残業割増 '+yen(s.otPremium)+' ＋ 深夜割増 '+yen(s.nightPremium)+' ＋ 交通費 '+yen(s.transport)+' ＝ <b>'+yen(s.total)+'</b>';
-  $('withholdingPay').textContent=s.taxSupported ? '▲'+yen(s.withholding) : '計算停止';
-  $('netPay').textContent=s.transfer!==null?yen(s.transfer):(s.taxSupported?'要確認':'—');
-  $('dailyPaidTotal').textContent=yen(s.paidTotal);
-  $('transferWarning').textContent=s.transferIssue;
-  $('taxLabel').textContent='源泉所得税（'+(s.taxClass==='otsu'?'乙欄':'甲欄')+'）';
-  const displayTaxYear=syncTaxYearDisplay();
-  $('taxMeta').textContent=s.taxSupported
+function renderStatement(s,statement){
+  const field=id=>statement.querySelector('#'+id);
+  field('statementStore').textContent=s.storeLabel;
+  field('staffName').textContent=s.name;
+  field('periodText').textContent=iso(s.start)+' ～ '+iso(s.end);
+  field('grossPay').textContent=yen(s.total);
+  field('beforeDailyPay').textContent=s.taxSupported?yen(s.net):'—';
+  field('days').textContent=s.days+'日';
+  field('hourly').textContent=yen(s.wage);
+  field('work').textContent=fmt(s.tot[0]);
+  field('break').textContent=fmt(s.tot[1]);
+  field('overtime').textContent=fmt(s.tot[2]);
+  field('nightHours').textContent=fmt(s.tot[3]);
+  field('basePay').textContent=yen(s.base);
+  field('otPay').textContent=yen(s.otPremium);
+  field('nightPay').textContent=yen(s.nightPremium);
+  field('transportPay').textContent=yen(s.transport);
+  field('formula').innerHTML='基本分 '+yen(s.base)+' ＋ 残業割増 '+yen(s.otPremium)+' ＋ 深夜割増 '+yen(s.nightPremium)+' ＋ 交通費 '+yen(s.transport)+' ＝ <b>'+yen(s.total)+'</b>';
+  field('withholdingPay').textContent=s.taxSupported ? '▲'+yen(s.withholding) : '計算停止';
+  field('netPay').textContent=s.transfer!==null?yen(s.transfer):(s.taxSupported?'要確認':'—');
+  field('dailyPaidTotal').textContent=yen(s.paidTotal);
+  field('transferWarning').textContent=s.transferIssue;
+  field('taxLabel').textContent='源泉所得税（'+(s.taxClass==='otsu'?'乙欄':'甲欄')+'）';
+  const displayTaxYear=Number.isFinite(s.taxYear)?s.taxYear:'未選択';
+  field('taxMeta').textContent=s.taxSupported
     ? '課税対象額 '+yen(s.taxable)+'（社会保険料等 '+yen(s.socialInsurance)+' 控除後） ／ '+(s.taxClass==='otsu'?'乙欄':'甲欄・扶養'+s.dependents+'人')+' ／ '+displayTaxYear+'年分'
     : '⚠ '+displayTaxYear+'年分：正式な税マスター未適用のため源泉所得税・差引支給額の計算を停止しています。前年の税率では計算しません。';
 
-$('dailyBody').innerHTML=s.daily.map(d=>{
+  field('dailyBody').innerHTML=s.daily.map(d=>{
     let c=d.calc;
     const paid=d.payment ? (d.payment.paid_amount==null?'金額未登録':yen(d.payment.paid_amount)) : '—';
     return '<tr><td>'+d.date.slice(5).replace('-','/')+'</td><td>'+(d.issue?'<span class="dailyWarn">'+esc(d.issue)+'</span>':esc(d.span))+'</td><td>'+fmt(c[0])+'</td><td>'+fmt(c[1])+'</td><td>'+fmt(c[2])+'</td><td>'+fmt(c[3])+'</td><td>'+(d.payment?'<b>'+paid+'</b>':paid)+'</td></tr>';
   }).join('')||'<tr><td colspan="7">この期間の勤怠はありません</td></tr>';
 
-  const cards=$('dailyCards');
+  const cards=field('dailyCards');
   if(cards){
     cards.innerHTML=s.daily.map(d=>{
       let c=d.calc;
@@ -957,8 +965,6 @@ $('dailyBody').innerHTML=s.daily.map(d=>{
       '</div>';
     }).join('')||'<div class="dailyCard">この期間の勤怠はありません</div>';
   }
-
-  renderAllStaff();
 }
 
 function renderAllStaff(){
@@ -1207,29 +1213,56 @@ $('dependents').addEventListener('change',storeTaxControls);
 $('periodMonth').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('paymentDate').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('socialInsurance').addEventListener('input',render);
-$('printBtn').addEventListener('click',()=>{
-  const selected=summarize($('staffSelect').value);
-  if(selected.transferIssue){alert(selected.transferIssue);return}
+function printStatements(summaries,all=false){
+  const problems=summaries.filter(s=>s.transferIssue);
+  if(problems.length){
+    alert(all
+      ? problems.map(s=>s.name+'（'+s.transferIssue+'）').join('\n')
+      : problems[0].transferIssue);
+    return;
+  }
+
   document.body.classList.remove('bulk-mode');
-  const src=$('statement');
-  if(!src)return;
-  const clone=src.cloneNode(true);
-  clone.querySelectorAll('.no-print,#safeYearGateNote,#zuccaTaxMasterBadgeTest').forEach(el=>el.remove());
+  const pages=summaries.map(s=>{
+    const page=$('statement').cloneNode(true);
+    renderStatement(s,page);
+    page.removeAttribute('id');
+    page.classList.add('printStatement');
+    page.querySelectorAll('.no-print,#safeYearGateNote,#zuccaTaxMasterBadgeTest').forEach(el=>el.remove());
+    page.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));
+    return page.outerHTML;
+  }).join('');
+  const printButton=all?'<button class="printAction" type="button" onclick="window.print()">PDF / 印刷</button>':'';
   const html='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title></title><style>'+
   '*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}'+
   '@page{size:A4 portrait;margin:7mm}'+
-  '#statement{width:196mm;height:283mm;overflow:hidden;padding:3mm;margin:0}'+
+  '.printStatement{width:196mm;padding:3mm;margin:0}'+
   '.hero{display:flex;justify-content:space-between;align-items:flex-start}.hero h2{font-size:15px;margin:0}.period{font-size:7px;color:#6b7280}.total{text-align:right}.total small{display:block;font-size:6px}.total strong{font-size:16px}'+
   '.statementStore{display:inline-block;font-size:7px;font-weight:900}.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:1.5mm;margin-top:2mm}.metric{border:1px solid #e5e7eb;border-radius:1.5mm;padding:1.5mm}.metric small,.paybox small,.deductionBox small{display:block;font-size:6px;color:#6b7280}.metric b,.paybox b{font-size:9px}'+
   '.paygrid{display:grid;grid-template-columns:repeat(4,1fr);gap:1.5mm;margin-top:1.5mm}.paybox{padding:1.5mm;border-radius:1.5mm}.base{background:#eff6ff;color:#1d4ed8}.ot{background:#fff7ed;color:#c2410c}.night{background:#f5f3ff;color:#6d28d9}.transport{background:#f0fdf4;color:#15803d}'+
   '.formula{margin-top:1.5mm;background:#f8fafc;padding:1mm;font-size:6px}.deductionGrid{display:grid;grid-template-columns:1fr 1fr;gap:1.5mm;margin-top:1.5mm}.deductionBox{padding:1.5mm;border-radius:1.5mm}.deductionBox b{font-size:10px}.taxBox{background:#fff1f2;color:#be123c}.netBox{background:#ecfdf5;color:#047857}.taxMeta{font-size:6px;margin-top:1mm}'+
   'h3{font-size:9px;margin:2mm 0 .7mm}h3+.note{font-size:5.8px;margin:0 0 .7mm;color:#6b7280}.dailyCards{display:none!important}.dailyTableWrap{overflow:visible}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:6.5px}th,td{padding:1mm .5mm;border-bottom:1px solid #e5e7eb;text-align:center}'+
-  '@media print{html,body{width:210mm;height:297mm;overflow:hidden}#statement{page-break-inside:avoid;break-inside:avoid}}'+
-  '</style></head><body>'+clone.outerHTML+'<script>window.onload=function(){setTimeout(function(){window.print()},150)}<\\/script></body></html>';
+  '.printAction{margin:3mm;padding:8px 14px}'+
+  '@media print{.printAction{display:none}.printStatement{page-break-inside:avoid;break-inside:avoid}.printStatement+.printStatement{page-break-before:always;break-before:page}}'+
+  '</style></head><body>'+printButton+pages+'<script>window.onload=function(){setTimeout(function(){window.print()},150)}<\/script></body></html>';
   const blob=new Blob([html],{type:'text/html;charset=utf-8'}),url=URL.createObjectURL(blob);
   const w=window.open(url,'_blank');
   if(!w){URL.revokeObjectURL(url);alert('印刷ページを開けませんでした。Safariのポップアップを許可してください。');return}
   setTimeout(()=>URL.revokeObjectURL(url),60000);
+}
+
+$('printBtn').addEventListener('click',()=>{
+  const key=$('staffSelect').value;
+  if(key)printStatements([summarize(key)]);
+});
+$('printAllBtn').addEventListener('click',()=>{
+  const staff=staffRows.filter(st=>st._storeId==='zucca');
+  if(!staff.length||selectedStore==='takanekodan')return;
+  if(!$('periodMonth').value||!$('paymentDate').value){
+    alert('締め期間と給与支払日を入力してください。');
+    return;
+  }
+  printStatements(staff.map(st=>summarize(staffKey(st))),true);
 });
 $('bulkPrintBtn').addEventListener('click',printFourUp);
 $('csvBtn').addEventListener('click',csv);
