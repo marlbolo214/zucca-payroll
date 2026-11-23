@@ -137,6 +137,13 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
 }
 
 /* ZUCCA 給与明細：勤務時間帯表示＋小数時間表示 */
+
+.pdfExportOverlay{position:fixed;inset:0;z-index:10000;background:rgba(17,24,39,.55);display:flex;align-items:center;justify-content:center;padding:20px}
+.pdfExportPanel{width:100%;max-width:460px;max-height:90dvh;overflow:auto;padding:24px;background:#fff;border-radius:18px;box-shadow:0 20px 70px #11182744}
+.pdfExportPanel h2{font-size:21px;margin:0 0 14px}
+.pdfExportActions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
+.pdfExportOpen{background:#111827;color:#fff;padding:13px 16px;border-radius:12px;text-decoration:none;font-size:15px;font-weight:800}
+.pdfExportHelp{font-size:13px;line-height:1.7;color:#4b5563}
 </style>
 
 <style>
@@ -330,7 +337,7 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
       <button id="bulkPrintBtn" class="light">4人ずつPDF</button>
       <button id="csvBtn" class="secondary">CSV</button>
     </div>
-    <p class="note">ZUCCAの全員分はA4縦・1人1ページです。「4人ずつPDF」は専用ページで内容を確認してから印刷できます。</p>
+    <p class="note">ZUCCAの全員分はA4縦・1人1ページです。PDFを開き、共有メニューから「プリント」を選んでください。</p>
   </div>
 
   <div class="card no-print">
@@ -342,6 +349,7 @@ th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right}th:fi
 
 <div id="bulkPrint" class="bulkPrint"></div>
 
+<script src="pdf-export.bundle.js" defer></script>
 <script src="tax-2027.js"></script>
 <script>
 const STORE_CONFIG={
@@ -1156,7 +1164,7 @@ async function printFourUp(){
     <div class="wrap">${pageHtml}</div>
   </body></html>`;
 
-  openPrintPage(html);
+  exportPrintPage(html);
 }
 
 function csv(){
@@ -1210,34 +1218,12 @@ $('dependents').addEventListener('change',storeTaxControls);
 $('periodMonth').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('paymentDate').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('socialInsurance').addEventListener('input',render);
-function openPrintPage(html){
-  const printWindow=window.open('','_blank');
-  if(!printWindow){
-    alert('印刷ページを開けませんでした。Safariのポップアップを許可して、もう一度印刷ボタンを押してください。');
+function exportPrintPage(html){
+  if(typeof window.exportPayslipPDF!=='function'){
+    alert('PDFの準備が完了していません。画面を再読み込みして、もう一度お試しください。');
     return;
   }
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
-}
-
-function printInPlace(html){
-  const printDocument=new DOMParser().parseFromString(html,'text/html');
-  let host=$('payrollPrintHost');
-  if(!host){
-    host=document.createElement('div');
-    host.id='payrollPrintHost';
-    document.body.append(host);
-  }
-  host.replaceChildren();
-  const style=document.createElement('style');
-  style.textContent='#payrollPrintHost{display:none}'+
-    '@media print{'+printDocument.querySelector('style').textContent+
-    'body>*:not(#payrollPrintHost){display:none!important}'+
-    '#payrollPrintHost{display:block!important}}';
-  host.append(style);
-  printDocument.querySelectorAll('.printStatement').forEach(page=>host.append(document.importNode(page,true)));
-  window.print();
+  window.exportPayslipPDF(html);
 }
 
 function printStatements(summaries,all=false){
@@ -1272,7 +1258,7 @@ function printStatements(summaries,all=false){
   '.printAction{margin:3mm;padding:8px 14px}'+
   '@media print{.printAction{display:none}.printStatement{page-break-inside:avoid;break-inside:avoid}.printStatement+.printStatement{page-break-before:always;break-before:page}}'+
   '</style></head><body>'+printButton+pages+'</body></html>';
-  printInPlace(html);
+  exportPrintPage(html);
 }
 
 $('printBtn').addEventListener('click',()=>{
