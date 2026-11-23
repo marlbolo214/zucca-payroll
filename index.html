@@ -1156,11 +1156,7 @@ async function printFourUp(){
     <div class="wrap">${pageHtml}</div>
   </body></html>`;
 
-  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  const w=window.open(url,'_blank');
-  if(!w){URL.revokeObjectURL(url);alert('専用ページを開けませんでした。Safariのポップアップを許可してください。');return}
-  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  openPrintPage(html);
 }
 
 function csv(){
@@ -1214,6 +1210,36 @@ $('dependents').addEventListener('change',storeTaxControls);
 $('periodMonth').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('paymentDate').addEventListener('change',()=>{syncTaxYearDisplay();render()});
 $('socialInsurance').addEventListener('input',render);
+function openPrintPage(html){
+  const printWindow=window.open('','_blank');
+  if(!printWindow){
+    alert('印刷ページを開けませんでした。Safariのポップアップを許可して、もう一度印刷ボタンを押してください。');
+    return;
+  }
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+}
+
+function printInPlace(html){
+  const printDocument=new DOMParser().parseFromString(html,'text/html');
+  let host=$('payrollPrintHost');
+  if(!host){
+    host=document.createElement('div');
+    host.id='payrollPrintHost';
+    document.body.append(host);
+  }
+  host.replaceChildren();
+  const style=document.createElement('style');
+  style.textContent='#payrollPrintHost{display:none}'+
+    '@media print{'+printDocument.querySelector('style').textContent+
+    'body>*:not(#payrollPrintHost){display:none!important}'+
+    '#payrollPrintHost{display:block!important}}';
+  host.append(style);
+  printDocument.querySelectorAll('.printStatement').forEach(page=>host.append(document.importNode(page,true)));
+  window.print();
+}
+
 function printStatements(summaries,all=false){
   const problems=summaries.filter(s=>s.transferIssue);
   if(problems.length){
@@ -1233,7 +1259,7 @@ function printStatements(summaries,all=false){
     page.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));
     return page.outerHTML;
   }).join('');
-  const printButton=all?'<button class="printAction" type="button" onclick="window.print()">PDF / 印刷</button>':'';
+  const printButton='<button class="printAction" type="button" onclick="window.print()">PDF / 印刷</button>';
   const html='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title></title><style>'+
   '*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}'+
   '@page{size:A4 portrait;margin:7mm}'+
@@ -1245,11 +1271,8 @@ function printStatements(summaries,all=false){
   'h3{font-size:9px;margin:2mm 0 .7mm}h3+.note{font-size:5.8px;margin:0 0 .7mm;color:#6b7280}.dailyCards{display:none!important}.dailyTableWrap{overflow:visible}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:6.5px}th,td{padding:1mm .5mm;border-bottom:1px solid #e5e7eb;text-align:center}'+
   '.printAction{margin:3mm;padding:8px 14px}'+
   '@media print{.printAction{display:none}.printStatement{page-break-inside:avoid;break-inside:avoid}.printStatement+.printStatement{page-break-before:always;break-before:page}}'+
-  '</style></head><body>'+printButton+pages+'<script>window.onload=function(){setTimeout(function(){window.print()},150)}<\/script></body></html>';
-  const blob=new Blob([html],{type:'text/html;charset=utf-8'}),url=URL.createObjectURL(blob);
-  const w=window.open(url,'_blank');
-  if(!w){URL.revokeObjectURL(url);alert('印刷ページを開けませんでした。Safariのポップアップを許可してください。');return}
-  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  '</style></head><body>'+printButton+pages+'</body></html>';
+  printInPlace(html);
 }
 
 $('printBtn').addEventListener('click',()=>{
